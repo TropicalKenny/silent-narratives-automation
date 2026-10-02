@@ -78,7 +78,7 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   const assFile=path.join(dir,'subtitles.ass');
   const output=path.join(dir,'final.mp4');
   const srcDur=probeDuration(sceneFile);
-  const duration=Math.min(9,Math.max(5,srcDur));
+  const duration=srcDur;
   makeOverlay(overlaySvg,hook);
   makeAss(assFile,subtitles,duration);
   run('ffmpeg',['-y','-i',overlaySvg,'-frames:v','1',overlayPng]);
@@ -87,7 +87,7 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   const args=['-y'];
   if(fs.existsSync(bg)) args.push('-stream_loop','-1','-i',bg);
   else args.push('-f','lavfi','-i','color=c=#171717:s=1080x1920:r=30');
-  args.push('-stream_loop','-1','-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng);
+  args.push('-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng);
 
   const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
   const filter=
