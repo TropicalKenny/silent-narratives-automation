@@ -13,26 +13,82 @@ import { renderShort } from './renderer.js';
 
 const app=express();
 
-function dashboardAuth(req,res,next){
-  if(req.path==='/health') return next();
-  const passwordHash=getSecret('dashboard_password_hash');
-  if(!passwordHash) return next();
-  const header=req.headers.authorization||'';
-  if(!header.startsWith('Basic ')){
-    res.set('WWW-Authenticate','Basic realm="Silent Narratives V1"');
-    return res.status(401).send('Authentication required.');
+const DASHBOARD_FALLBACK_HASH='2d3b7e18d37d299dda9d8bddfa0ed70691533808dfd5cec6fd87e148b09aed21';
+const SESSION_COOKIE='sn_session';
+const SESSION_MAX_AGE=7*24*60*60;
+
+app.use(express.urlencoded({extended:false}));
+app.use(express.json({limit:'2mb'}));
+
+function passwordHashes(){
+  const stored=getSecret('dashboard_password_hash');
+  return [...new Set([stored,DASHBOARD_FALLBACK_HASH].filter(Boolean))];
+}
+function sessionSecret(){
+  return crypto.createHash('sha256').update('silent-narratives-v1:'+passwordHashes().join(':')).digest();
+}
+function makeSession(){
+  const exp=Date.now()+SESSION_MAX_AGE*1000;
+  const payload='kenny.'+exp;
+  const sig=crypto.createHmac('sha256',sessionSecret()).update(payload).digest('hex');
+  return Buffer.from(payload+'.'+sig).toString('base64url');
+}
+function cookieValue(req,name){
+  const raw=req.headers.cookie||'';
+  for(const part of raw.split(';')){
+    const i=part.indexOf('=');
+    if(i<0) continue;
+    if(part.slice(0,i).trim()===name) return decodeURIComponent(part.slice(i+1).trim());
   }
-  let decoded='';
-  try{ decoded=Buffer.from(header.slice(6),'base64').toString('utf8'); }catch{}
-  const split=decoded.indexOf(':');
-  const user=split>=0?decoded.slice(0,split):'';
-  const pass=split>=0?decoded.slice(split+1):'';
+  return '';
+}
+function validSession(req){
+  try{
+    const token=cookieValue(req,SESSION_COOKIE);
+    if(!token) return false;
+    const decoded=Buffer.from(token,'base64url').toString('utf8');
+    const parts=decoded.split('.');
+    if(parts.length!==3 || parts[0]!=='kenny') return false;
+    const exp=Number(parts[1]);
+    if(!Number.isFinite(exp) || exp<Date.now()) return false;
+    const payload=parts[0]+'.'+parts[1];
+    const expected=crypto.createHmac('sha256',sessionSecret()).update(payload).digest('hex');
+    const got=parts[2];
+    if(got.length!==expected.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(got),Buffer.from(expected));
+  }catch{return false;}
+}
+function loginPage(error=''){
+  const message=error?'<div class="error">'+error+'</div>':'';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b0d10"><title>Sign in · Silent Narratives</title><style>
+  *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#f5f7fa;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}.card{width:min(100%,420px);background:#12161c;border:1px solid #252b34;border-radius:20px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.35)}.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8f9aaa;margin:0 0 10px}.brand{font-size:28px;line-height:1.1;margin:0 0 8px}.muted{color:#9aa4b2;margin:0 0 24px;line-height:1.55}label{display:block;font-size:13px;color:#c5ccd5;margin:14px 0 7px}input{width:100%;border:1px solid #303844;background:#0d1117;color:#fff;border-radius:12px;padding:14px 15px;font:inherit;outline:none}input:focus{border-color:#758298;box-shadow:0 0 0 3px rgba(117,130,152,.15)}button{width:100%;margin-top:18px;border:0;border-radius:12px;padding:14px 16px;background:#f5f7fa;color:#0b0d10;font:700 15px inherit;cursor:pointer}.error{background:#31181a;border:1px solid #673034;color:#ffb9bd;padding:11px 12px;border-radius:10px;margin:0 0 14px;font-size:13px}.foot{margin:18px 0 0;color:#697386;font-size:12px;text-align:center}</style></head><body><main class="card"><p class="eyebrow">VPS AUTOMATION</p><h1 class="brand">Silent Narratives</h1><p class="muted">Sign in to the V1 automation dashboard.</p>${message}<form method="post" action="login"><label for="username">Username</label><input id="username" name="username" autocomplete="username" autocapitalize="none" required><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in</button></form><p class="foot">Protected VPS dashboard</p></main></body></html>`;
+}
+
+app.get('/login',(req,res)=>{
+  if(validSession(req)) return res.redirect('./');
+  res.set('Cache-Control','no-store').send(loginPage(''));
+});
+app.post('/login',(req,res)=>{
+  const user=String(req.body?.username||'').trim();
+  const pass=String(req.body?.password||'');
   const passHash=crypto.createHash('sha256').update(pass).digest('hex');
-  if(user!=='kenny' || ![passwordHash,'2d3b7e18d37d299dda9d8bddfa0ed70691533808dfd5cec6fd87e148b09aed21'].includes(passHash)){
-    res.set('WWW-Authenticate','Basic realm="Silent Narratives V1"');
-    return res.status(401).send('Invalid credentials.');
+  if(user!=='kenny' || !passwordHashes().includes(passHash)){
+    return res.status(401).set('Cache-Control','no-store').send(loginPage('Incorrect username or password.'));
   }
-  next();
+  const cookie=SESSION_COOKIE+'='+encodeURIComponent(makeSession())+'; Path=/silent-narratives; Max-Age='+SESSION_MAX_AGE+'; HttpOnly; Secure; SameSite=Lax';
+  res.setHeader('Set-Cookie',cookie);
+  res.redirect('./');
+});
+app.post('/logout',(req,res)=>{
+  res.setHeader('Set-Cookie',SESSION_COOKIE+'=; Path=/silent-narratives; Max-Age=0; HttpOnly; Secure; SameSite=Lax');
+  res.redirect('./login');
+});
+
+function dashboardAuth(req,res,next){
+  if(req.path==='/health' || req.path==='/login') return next();
+  if(validSession(req)) return next();
+  if(req.path.startsWith('/api/') || req.path.startsWith('/oauth/')) return res.status(401).json({ok:false,error:'Authentication required.'});
+  res.redirect('./login');
 }
 app.use(dashboardAuth);
 const PORT=Number(process.env.PORT||8400);
@@ -66,8 +122,6 @@ const upload=multer({
 });
 
 app.set('trust proxy',true);
-app.use(express.json({limit:'2mb'}));
-app.use(express.urlencoded({extended:true}));
 app.use(express.static(path.join(ROOT,'public')));
 
 function baseUrl(req){
