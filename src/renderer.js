@@ -153,11 +153,14 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[
   args.push('-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng,'-loop','1','-framerate','30','-i',maskPng);
 
   const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
+  const payoffStart=Number(subtitleTimings?.[1]?.start ?? Math.max(0.75,d*0.45));
+  const payoffFrame=Math.max(1,Math.round(payoffStart*30));
+  const zoomExpr="zoompan=z='if(lt(on,"+payoffFrame+"),1+on*0.00014,min(1.060,1.004+(on-"+payoffFrame+")*0.00085))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-if(gte(on,"+payoffFrame+"),6,0)':d=1:s=1044x859:fps=30,";
   const filter=
     '[0:v]trim=duration='+d+',setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=5:5:0.25:5:5:0.0,setsar=1[bg];'+
     '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+','+
       'scale=1530:860:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:859,'+
-      "zoompan=z='if(lt(on,28),1+on*0.00014,min(1.060,1.004+(on-28)*0.00085))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-if(gte(on,28),6,0)':d=1:s=1044x859:fps=30,"+
+      zoomExpr+
       'format=rgba[cliprgb];'+
     '[3:v]setpts=PTS-STARTPTS,scale=1044:859,format=gray[mask];[cliprgb][mask]alphamerge[clip];'+
     '[2:v]setpts=PTS-STARTPTS,format=rgba[cardfx];'+

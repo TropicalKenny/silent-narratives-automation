@@ -1240,3 +1240,146 @@ Use the automatic snapshots to compare like-for-like checkpoints:
 Continue logging story/topic, source competitor, scene duration and slot so time-of-day is not confused with stronger/weaker content.
 
 Target: collect at least 15–30 new-format uploads before making a strong permanent timing decision.
+
+## Checkpoint — 2026-10-02 factual verification gate + Job 4 render
+
+### New factual-verification workflow rule
+
+Competitor Shorts are source leads, not automatically authoritative factual sources.
+
+Before scene acquisition/rendering:
+1. identify the exact factual claim made by the competitor Short;
+2. independently corroborate the material claim with external/public evidence where possible;
+3. if the material claim cannot be corroborated, mark the job rejected/review-needed before spending scene/render work;
+4. use cautious attribution such as “reportedly” or “accounts of the shoot say” when evidence is secondary rather than primary;
+5. do not turn a competitor’s unsupported caption into a Silent Narratives factual statement.
+
+This rule exists because Job 3 failed this gate.
+
+### Job 3 — rejected before scene work
+
+Candidate:
+- candidate ID: 18
+- source: @YautjaVision
+- video: https://www.youtube.com/shorts/DH4wWH7Mff8
+- source views at discovery: about 34.3M
+- initial slot: 2026-10-03 at 13:00 WAT
+- claimed story: Meet Bill (2007), Jessica Alba and Logan Lerman improvised mall/donut-shop scenes
+
+Verification:
+- Gemini confirmed the competitor Short itself explicitly makes the improv claim
+- independent public-source checks confirmed cast/location context but did not sufficiently corroborate that specific improv claim
+
+Action:
+- Job 3 status: rejected
+- candidate 18 status: review_needed
+- rejection happened before scene acquisition/rendering
+- 13:00 WAT slot was freed for a stronger verified story
+
+### Job 4 — active 13:00 WAT production job
+
+Candidate:
+- candidate ID: 19
+- competitor source: https://www.youtube.com/shorts/OT91XoiF2gE
+- source views at discovery: about 30.1M
+- movie: Hardcore Henry (2015)
+- slot: 2026-10-03 at 13:00 WAT
+- scheduled_publish_at: 2026-10-03T12:00:00Z
+
+Story:
+- accidental escalator collision during the chase
+- public accounts support that a performer missed her mark/cue, was knocked down during the shot, recovered, and the accidental collision remained in the film
+- current copy intentionally uses cautious wording
+
+Current hook:
+In Hardcore Henry (2015), a stuntwoman reportedly missed her mark during this escalator chase and got knocked down on camera. She recovered instantly—and the accidental collision stayed in the movie.
+
+Current title:
+The Stunt Mistake They Kept in Hardcore Henry 🎬💥 #hardcorehenry #stunts #shorts
+
+Current description:
+Did you know this escalator collision in Hardcore Henry (2015) wasn't planned? Accounts of the shoot say a stunt performer missed her mark during the chase and got knocked down on camera. She recovered immediately, and the accidental collision was kept in the finished film.
+
+### Job 4 scene acquisition
+
+Visual verification source:
+- https://9gag.com/gag/azqdP6x
+- exact 12-second “unscripted escalator scene” copy
+- useful for exact visual verification
+- its available formats are video-only, so it was NOT used as the final audio source
+
+Audio-bearing source:
+- public copy of official Hardcore Henry trailer
+- https://www.dailymotion.com/video/x3udl6e
+- downloaded at 1848×1040, ~23.976 fps
+- AAC stereo audio
+- the exact same escalator collision was visually verified inside the trailer
+
+Final selected source segment:
+- trailer time approximately 118.4s–122.1s
+- final scene duration: 3.700s
+- exact escalator approach → collision → immediate aftermath
+- unrelated following trailer shot excluded
+
+Final scene audio:
+- trailer music
+- collision/crash effects
+- shouting
+- no voiceover
+- no invented dialogue
+
+Own dramatic captions:
+- THAT HIT WASN’T PLANNED.
+- THEY KEPT THE TAKE.
+
+Subtitle timing:
+- setup: about 0.45–1.62s
+- payoff: about 1.62–3.35s
+
+### Renderer learning: scene-aware payoff motion
+
+Previous approved renderer still had one hidden Job-1-specific value:
+- punch-in began around frame 28 regardless of the job
+
+Fixed:
+- payoff frame is now derived from the second subtitle’s actual start timestamp
+- if no second timing is supplied, renderer falls back to a proportional duration-based value
+- each future Short’s punch-in now follows its own editorial payoff rather than the Deep Water timing
+
+This is now part of the approved renderer workflow.
+
+### Job 4 finished render QA
+
+Master:
+- work/4/final.mp4
+- 1080×1920
+- H.264 High
+- 30 fps
+- BT.709 / yuv420p
+- duration exactly 3.700s
+- video bitrate about 12.7 Mbps
+- AAC-LC stereo 48 kHz
+- audio duration exactly 3.700s
+- audio bitrate about 310 kbps
+- master size about 6.0 MB
+
+Review derivative:
+- work/4/preview.mp4
+- about 1.46 MB
+- public review route is live
+
+Finished-render Gemini QA:
+- exact escalator collision visible: yes
+- unrelated trailer shot visible: no
+- first frame fully composed: yes
+- captions seen: both intended captions
+- caption timing quality: good
+- payoff punch timing: good
+- audio: music + collision sound
+- voiceover: none
+- A/V sync: good
+- ending clean: yes
+- issues: none
+
+Job 4 is rendered but NOT uploaded or scheduled.
+Owner approval is required before scheduling for 13:00 WAT.
