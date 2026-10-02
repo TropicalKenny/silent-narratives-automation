@@ -1080,3 +1080,43 @@ https://vps-0868c90c.vps.ovh.ca/silent-narratives/api/jobs/2/video
 4. Verify work/2 transient files are deleted after scheduling confirmation.
 5. Build the reusable automatic exact-scene acquisition module from the now-proven Job 1 + Job 2 acquisition patterns.
 6. Fill tomorrow’s 13:00 / 16:00 / 22:00 production slots automatically.
+
+## Checkpoint — 2026-10-02 first successful YouTube scheduled publish
+
+Owner approved Job 2.
+
+Scheduling result:
+- Job ID: 2
+- YouTube video ID: tJkrVTrRbwA
+- YouTube URL: https://youtu.be/tJkrVTrRbwA
+- assigned slot: 2026-10-02 at 22:00 WAT
+- YouTube publishAt: 2026-10-02T21:00:00Z
+- YouTube privacy immediately after scheduling: private
+- DB status: scheduled
+- upload_confirmed_at recorded
+- youtube_publish_at recorded
+- no scheduling error
+
+Cleanup result:
+- localVideosDeleted: true
+- scene_file cleared
+- render_file cleared
+- preview_file cleared
+- deleted_at recorded
+- work/2 directory removed completely after YouTube confirmation
+
+This proves the scheduled-publish path end to end:
+approved render → upload as private → set publishAt → read back/verify private → persist YouTube ID/publishAt → delete transient job videos.
+
+The Nigeria slot engine is now proven for a real scheduled upload.
+
+Do not regress these rules:
+- scheduling must use YouTube publishAt, not a VPS exact-time uploader
+- video must remain private before its scheduled release
+- cleanup only happens after successful YouTube confirmation
+- failed schedule/upload keeps files for retry
+- owner approval remains required before scheduling until a later explicit autopilot decision
+
+Next production target:
+- next open publishing slot after Job 2 is the next future configured slot among 13:00, 16:00, 22:00 WAT
+- continue using duplicate screening, exact-scene verification, approved render baseline, owner preview approval, then schedule.
