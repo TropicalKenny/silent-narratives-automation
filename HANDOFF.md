@@ -1383,3 +1383,50 @@ Finished-render Gemini QA:
 
 Job 4 is rendered but NOT uploaded or scheduled.
 Owner approval is required before scheduling for 13:00 WAT.
+
+## Checkpoint — 2026-10-02 manual three-video daily batches
+
+Owner changed the operating model to prevent a backlog of scheduled Shorts.
+
+Authoritative rule:
+- production does NOT run continuously
+- owner explicitly says when to start a batch
+- one batch = exactly 3 videos for one publishing day
+- configured daily slots remain:
+  - 13:00 WAT
+  - 15:00 WAT
+  - 22:00 WAT
+- once those three slots are filled, the system must stop
+- do not spill automatically into the next day
+- do not keep preparing/scheduling future days unless the owner explicitly starts another batch
+
+Implementation:
+- production_mode = manual_batch
+- batch_limit = 3
+- batch_active_date is blank while paused
+- POST /api/batch/start activates one explicit date
+- POST /api/batch/stop pauses production
+- new source/job creation requires an active batch
+- nextOpenPublishingSlot searches ONLY the active batch date
+- it never searches forward across multiple days
+- if all three slots are filled, creation stops with an error
+- job creation now validates the batch/slot BEFORE inserting into the database, so an accidental click while paused cannot create orphan jobs
+- dashboard displays “Paused · waiting for start” when no batch is active
+
+Existing work at the moment this rule was adopted:
+- Job 2 was already scheduled for 2026-10-02 at 22:00 WAT and remains unchanged
+- Job 4 had already been scheduled for 2026-10-03 at 13:00 WAT before this workflow change; it remains unchanged
+- Job 5 (I Am Legend alternate-ending story) is analyzed and its source was downloaded, but it is now PAUSED with no assigned publishing slot and is NOT uploaded/scheduled
+- do not continue Job 5 or create Job 6 until the owner explicitly says to start a daily batch
+
+Operational meaning of “start”:
+- when owner says “start”, resolve the intended publishing date
+- activate that one date as batch_active_date
+- prepare at most 3 videos total for its 13:00 / 15:00 / 22:00 WAT slots
+- apply duplicate screening, factual verification, exact-scene verification, approved renderer QA and owner approval rules
+- after the three-video batch is complete, clear batch_active_date / pause again
+
+Do not interpret analytics collection as production activity:
+- performance snapshots may continue collecting automatically
+- channel/history sync may continue when requested
+- no new content production begins without the owner’s explicit start command

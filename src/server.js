@@ -156,6 +156,14 @@ function publishingSlots(){
   }catch{}
   return DEFAULT_PUBLISHING_SLOTS;
 }
+function productionMode(){ return setting('production_mode','manual_batch'); }
+function batchLimit(){ return Math.max(1,Math.min(3,Number(setting('batch_limit','3'))||3)); }
+function activeBatchDate(){ return String(setting('batch_active_date','')||'').trim(); }
+function requireActiveBatch(){
+  const date=activeBatchDate();
+  if(productionMode()!=='manual_batch' || !date) throw new Error('Production is paused. Start a daily batch first.');
+  return date;
+}
 function lagosDateString(date=new Date()){
   const parts=new Intl.DateTimeFormat('en-CA',{
     timeZone:PUBLISH_TIMEZONE,year:'numeric',month:'2-digit',day:'2-digit'
@@ -180,16 +188,14 @@ function slotOccupied(date,time,ignoreJobId=null){
   return Boolean(row);
 }
 function nextOpenPublishingSlot(from=new Date()){
-  const today=lagosDateString(from);
-  for(let day=0;day<21;day++){
-    const date=addDays(today,day);
-    for(const time of publishingSlots()){
-      const publishAt=slotIso(date,time);
-      if(new Date(publishAt).getTime()<=from.getTime()+5*60*1000) continue;
-      if(!slotOccupied(date,time)) return {date,time,publishAt,timezone:PUBLISH_TIMEZONE};
-    }
+  const date=requireActiveBatch();
+  const slots=publishingSlots().slice(0,batchLimit());
+  for(const time of slots){
+    const publishAt=slotIso(date,time);
+    if(new Date(publishAt).getTime()<=from.getTime()+5*60*1000) continue;
+    if(!slotOccupied(date,time)) return {date,time,publishAt,timezone:PUBLISH_TIMEZONE};
   }
-  throw new Error('No open publishing slot found in the next 21 days.');
+  throw new Error('This daily batch already has all available future slots filled. Start another batch only when the owner explicitly requests it.');
 }
 function assignNextPublishingSlot(jobId){
   const slot=nextOpenPublishingSlot();
@@ -305,7 +311,10 @@ app.get('/api/state',(req,res)=>{
       deleteAfterUpload:true,
       publicBaseUrl:setting('public_base_url',''),
       publishingTimezone:PUBLISH_TIMEZONE,
-      publishingSlots:publishingSlots()
+      publishingSlots:publishingSlots(),
+      productionMode:productionMode(),
+      batchLimit:batchLimit(),
+      batchActiveDate:activeBatchDate()
     }
   });
 });
@@ -340,6 +349,27 @@ app.post('/api/history/sync',async(req,res)=>{
     run("UPDATE candidates SET screened_at=NULL WHERE status='new'");
     const screening=await screenAndPersistCandidates();
     ok(res,{synced,channel:data.channel,screening});
+  }catch(e){fail(res,e);}
+});
+
+app.post('/api/batch/start',(req,res)=>{
+  try{
+    const date=String(req.body.date||lagosDateString()).trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Batch date must be YYYY-MM-DD.');
+    const slots=publishingSlots().slice(0,batchLimit());
+    const futureSlots=slots.filter(time=>new Date(slotIso(date,time)).getTime()>Date.now()+5*60*1000);
+    if(futureSlots.length<slots.length) throw new Error('A three-video batch must start before all three publishing slots for that date. Choose the next publishing day.');
+    setSetting('production_mode','manual_batch');
+    setSetting('batch_limit','3');
+    setSetting('batch_active_date',date);
+    ok(res,{batch:{date,limit:3,slots,timezone:PUBLISH_TIMEZONE}});
+  }catch(e){fail(res,e);}
+});
+
+app.post('/api/batch/stop',(req,res)=>{
+  try{
+    setSetting('batch_active_date','');
+    ok(res,{paused:true});
   }catch(e){fail(res,e);}
 });
 
@@ -450,9 +480,10 @@ app.post('/api/jobs/from-candidate/:id',(req,res)=>{
     if(['duplicate','review_needed'].includes(c.status)) throw new Error('This source is blocked by duplicate protection.');
     const prior=get('SELECT id FROM jobs WHERE candidate_id=? ORDER BY id DESC LIMIT 1',[c.id]);
     if(prior) return ok(res,{jobId:prior.id,reused:true});
-    const r=run('INSERT INTO jobs(candidate_id,source_url,status) VALUES(?,?,?)',[c.id,c.url,'draft']);
+    const slot=nextOpenPublishingSlot();
+    const r=run('INSERT INTO jobs(candidate_id,source_url,status,slot_date,slot_time,scheduled_publish_at) VALUES(?,?,?,?,?,?)',
+      [c.id,c.url,'draft',slot.date,slot.time,slot.publishAt]);
     const jobId=Number(r.lastInsertRowid);
-    const slot=assignNextPublishingSlot(jobId);
     run("UPDATE candidates SET status='selected',used_at=CURRENT_TIMESTAMP WHERE id=?",[c.id]);
     ok(res,{jobId,slot});
   }catch(e){fail(res,e);}
@@ -462,9 +493,10 @@ app.post('/api/jobs/from-url',(req,res)=>{
   try{
     const url=String(req.body.url||'').trim();
     if(!extractVideoId(url)) throw new Error('Enter a valid YouTube video or Shorts URL.');
-    const r=run('INSERT INTO jobs(source_url,status) VALUES(?,?)',[url,'draft']);
+    const slot=nextOpenPublishingSlot();
+    const r=run('INSERT INTO jobs(source_url,status,slot_date,slot_time,scheduled_publish_at) VALUES(?,?,?,?,?)',
+      [url,'draft',slot.date,slot.time,slot.publishAt]);
     const jobId=Number(r.lastInsertRowid);
-    const slot=assignNextPublishingSlot(jobId);
     ok(res,{jobId,slot});
   }catch(e){fail(res,e);}
 });

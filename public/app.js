@@ -83,7 +83,8 @@ function renderToday(){
   const today=lagosToday();
   const slots=STATE?.settings?.publishingSlots||['13:00','15:00','22:00'];
   const todaysJobs=(STATE?.jobs||[]).filter(j=>j.slot_date===today && !['uploaded','scheduled','scheduled_cleanup_pending'].includes(j.status));
-  $('#todayProgress').textContent=todaysJobs.length+' of 3 in production';
+  const batchDate=STATE?.settings?.batchActiveDate||'';
+  $('#todayProgress').textContent=batchDate ? (todaysJobs.length+' of 3 in production') : 'Paused · waiting for start';
   const sources=availableSources();
   const cards=[];
   for(let i=0;i<slots.length;i++){
