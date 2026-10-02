@@ -45,6 +45,7 @@ function render(){
   renderSources();
   renderJobs();
   renderMemory();
+  renderSlotLearning();
   renderIntegrations();
   renderCompetitors();
   renderSettings();
@@ -80,7 +81,7 @@ function nextAction(j){
 
 function renderToday(){
   const today=lagosToday();
-  const slots=STATE?.settings?.publishingSlots||['13:00','16:00','22:00'];
+  const slots=STATE?.settings?.publishingSlots||['13:00','15:00','22:00'];
   const todaysJobs=(STATE?.jobs||[]).filter(j=>j.slot_date===today && !['uploaded','scheduled','scheduled_cleanup_pending'].includes(j.status));
   $('#todayProgress').textContent=todaysJobs.length+' of 3 in production';
   const sources=availableSources();
@@ -178,6 +179,32 @@ function renderJobs(){
   }).join('');
 }
 
+
+function renderSlotLearning(){
+  const el=$('#slotLearning');
+  if(!el)return;
+  const perf=STATE.performance||{};
+  const checkpoints=Array.isArray(perf.checkpoints)?perf.checkpoints:[];
+  const slots=STATE.settings?.publishingSlots||['13:00','15:00','22:00'];
+  const order={'1h':1,'6h':2,'24h':3,'48h':4,'7d':5};
+
+  el.innerHTML=slots.map(slot=>{
+    const rows=checkpoints.filter(r=>r.slot_time===slot);
+    const captured=rows.filter(r=>r.captured_at)
+      .sort((a,b)=>(order[b.checkpoint]||0)-(order[a.checkpoint]||0))[0];
+    const pending=rows.filter(r=>!r.captured_at)
+      .sort((a,b)=>(order[a.checkpoint]||99)-(order[b.checkpoint]||99))[0];
+
+    let value='Collecting data';
+    if(captured){
+      value=captured.checkpoint+' · '+compact(captured.views||0)+' views';
+    }else if(pending){
+      value=pending.checkpoint+' checkpoint pending';
+    }
+    return '<div class="history-row"><strong>'+esc(slotLabel(slot)+' WAT')+'</strong><span>'+esc(value)+'</span></div>';
+  }).join('');
+}
+
 function renderMemory(){
   const h=STATE.history||{};
   $('#memoryCount').textContent=h.count||0;
@@ -232,6 +259,23 @@ $('#competitorForm').addEventListener('submit',async e=>{e.preventDefault();try{
 $('#urlForm').addEventListener('submit',async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/jobs/from-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();$('#sourcesDialog').close();toast('Production job #'+d.jobId+' created');await refresh();}catch(err){toast(err.message,true);}});
 $('#secretsForm').addEventListener('submit',async e=>{e.preventDefault();try{const raw=Object.fromEntries(new FormData(e.target));const body=Object.fromEntries(Object.entries(raw).filter(([,v])=>String(v).trim()));await api('/api/settings/secrets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();toast('Connections saved');await refresh();}catch(err){toast(err.message,true);}});
 $('#settingsForm').addEventListener('submit',async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});toast('Publishing defaults saved');await refresh();}catch(err){toast(err.message,true);}});
+
+
+$('#collectPerformanceBtn')?.addEventListener('click',async()=>{
+  const b=$('#collectPerformanceBtn');
+  try{
+    b.disabled=true;
+    b.textContent='Refreshing…';
+    await api('/api/performance/collect',{method:'POST'});
+    await refresh();
+    toast('Performance checkpoints refreshed');
+  }catch(e){
+    toast(e.message,true);
+  }finally{
+    b.disabled=false;
+    b.textContent='Refresh metrics';
+  }
+});
 
 const qs=new URLSearchParams(location.search);
 if(qs.get('background')==='ready')setTimeout(()=>toast('Gameplay background ready'),250);

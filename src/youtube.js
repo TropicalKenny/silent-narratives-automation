@@ -227,3 +227,23 @@ export async function videoStatus(videoId) {
     uploadStatus:v.status?.uploadStatus||null
   };
 }
+
+
+export async function videoMetrics(videoId) {
+  const token=await accessToken();
+  const u=new URL(apiBase+'/videos');
+  u.searchParams.set('part','snippet,status,statistics');
+  u.searchParams.set('id',String(videoId));
+  const {data}=await jsonFetch(u,{headers:{Authorization:'Bearer '+token}});
+  const v=data.items?.[0];
+  if(!v) throw new Error('YouTube video could not be read for performance tracking.');
+  return {
+    videoId:v.id,
+    title:v.snippet?.title||'',
+    publishedAt:v.snippet?.publishedAt||null,
+    privacy:v.status?.privacyStatus||null,
+    views:Number(v.statistics?.viewCount||0),
+    likes:Number(v.statistics?.likeCount||0),
+    comments:Number(v.statistics?.commentCount||0)
+  };
+}

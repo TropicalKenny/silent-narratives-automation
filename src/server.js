@@ -8,7 +8,7 @@ import { all, get, run, setting, setSetting } from './db.js';
 import { setSecret, secretStatus, getSecret } from './secrets.js';
 import { extractVideoId, jobDir, cleanupJobVideos } from './utils.js';
 import { analyzeYouTube } from './gemini.js';
-import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus } from './youtube.js';
+import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus, videoMetrics } from './youtube.js';
 import { renderShort } from './renderer.js';
 import { screenCandidatesAgainstHistory } from './duplicates.js';
 
@@ -147,7 +147,7 @@ async function screenAndPersistCandidates(candidateRows=null){
 
 
 const PUBLISH_TIMEZONE='Africa/Lagos';
-const DEFAULT_PUBLISHING_SLOTS=['13:00','16:00','22:00'];
+const DEFAULT_PUBLISHING_SLOTS=['13:00','15:00','22:00'];
 
 function publishingSlots(){
   try{
@@ -198,6 +198,74 @@ function assignNextPublishingSlot(jobId){
   return slot;
 }
 
+
+const PERFORMANCE_CHECKPOINTS=[
+  ['1h',1],
+  ['6h',6],
+  ['24h',24],
+  ['48h',48],
+  ['7d',168]
+];
+
+function seedPerformanceCheckpoints(jobId,videoId,publishAt){
+  if(!jobId||!videoId||!publishAt) return;
+  const base=new Date(publishAt);
+  if(!Number.isFinite(base.getTime())) return;
+  for(const [checkpoint,hours] of PERFORMANCE_CHECKPOINTS){
+    const target=new Date(base.getTime()+hours*3600*1000).toISOString();
+    run(`INSERT INTO performance_snapshots(job_id,video_id,checkpoint,target_at)
+         VALUES(?,?,?,?)
+         ON CONFLICT(job_id,checkpoint) DO UPDATE SET
+           video_id=excluded.video_id,
+           target_at=excluded.target_at`,
+        [jobId,videoId,checkpoint,target]);
+  }
+}
+
+async function collectDuePerformanceSnapshots(){
+  const due=all(`SELECT * FROM performance_snapshots
+                 WHERE captured_at IS NULL
+                   AND datetime(target_at)<=datetime('now')
+                 ORDER BY datetime(target_at) ASC
+                 LIMIT 12`);
+  let captured=0;
+  for(const row of due){
+    try{
+      const m=await videoMetrics(row.video_id);
+      run(`UPDATE performance_snapshots
+           SET captured_at=CURRENT_TIMESTAMP,views=?,likes=?,comments=?,privacy=?,published_at=?,error=NULL
+           WHERE id=?`,
+          [m.views,m.likes,m.comments,m.privacy,m.publishedAt,row.id]);
+      captured++;
+    }catch(e){
+      run('UPDATE performance_snapshots SET error=? WHERE id=?',
+          [String(e.message||e).slice(0,500),row.id]);
+    }
+  }
+  return {due:due.length,captured};
+}
+
+function performanceSummary(){
+  const checkpoints=all(`SELECT p.job_id,p.video_id,p.checkpoint,p.target_at,p.captured_at,
+                                 p.views,p.likes,p.comments,p.privacy,p.published_at,p.error,
+                                 j.slot_date,j.slot_time,j.youtube_url,j.yt_title
+                          FROM performance_snapshots p
+                          JOIN jobs j ON j.id=p.job_id
+                          ORDER BY datetime(p.target_at) DESC
+                          LIMIT 80`);
+  const slots=all(`SELECT j.slot_time,p.checkpoint,
+                           COUNT(*) samples,
+                           CAST(ROUND(AVG(p.views)) AS INTEGER) avg_views,
+                           MIN(p.views) min_views,
+                           MAX(p.views) max_views
+                    FROM performance_snapshots p
+                    JOIN jobs j ON j.id=p.job_id
+                    WHERE p.captured_at IS NOT NULL AND j.slot_time IS NOT NULL
+                    GROUP BY j.slot_time,p.checkpoint
+                    ORDER BY j.slot_time,p.checkpoint`);
+  return {checkpoints,slots};
+}
+
 app.get('/health',(req,res)=>ok(res,{service:'silent-narratives-v1',version:'0.1.0'}));
 
 app.get('/api/state',(req,res)=>{
@@ -216,6 +284,7 @@ app.get('/api/state',(req,res)=>{
     youtubeConnected:Boolean(s.youtube_refresh_token)
   };
   const assets={background:fs.existsSync(path.join(ROOT,'assets','background.mp4'))};
+  const performance=performanceSummary();
   ok(res,{
     competitors,candidates,jobs,history:{
       count:historyCount,
@@ -229,7 +298,7 @@ app.get('/api/state',(req,res)=>{
       duplicateBlocked,
       reviewBlocked
       }
-    },integrations,assets,
+    },integrations,assets,performance,
     settings:{
       minViews:Number(setting('min_views','5000000')),
       privacy:setting('youtube_privacy','private'),
@@ -241,6 +310,14 @@ app.get('/api/state',(req,res)=>{
   });
 });
 
+
+
+app.post('/api/performance/collect',async(req,res)=>{
+  try{
+    const result=await collectDuePerformanceSnapshots();
+    ok(res,{...result,performance:performanceSummary()});
+  }catch(e){fail(res,e);}
+});
 
 app.post('/api/history/sync',async(req,res)=>{
   try{
@@ -514,6 +591,7 @@ app.post('/api/jobs/:id/schedule',async(req,res)=>{
 
     run("UPDATE jobs SET youtube_video_id=?,youtube_url=?,youtube_publish_at=?,upload_confirmed_at=CURRENT_TIMESTAMP,status='scheduled',updated_at=CURRENT_TIMESTAMP WHERE id=?",
       [uploaded.videoId,uploaded.url,youtubePublishAt,id]);
+    seedPerformanceCheckpoints(id,uploaded.videoId,youtubePublishAt);
 
     const cleaned=cleanupJobVideos(id);
     if(cleaned){
@@ -572,6 +650,9 @@ app.get('/oauth/youtube/callback',async(req,res)=>{
 });
 
 app.get('/{*splat}',(req,res)=>res.sendFile(path.join(ROOT,'public','index.html')));
+
+setTimeout(()=>collectDuePerformanceSnapshots().catch(()=>{}),5000);
+setInterval(()=>collectDuePerformanceSnapshots().catch(()=>{}),15*60*1000);
 
 app.listen(PORT,'127.0.0.1',()=>{
   console.log('Silent Narratives V1 listening on 127.0.0.1:'+PORT);

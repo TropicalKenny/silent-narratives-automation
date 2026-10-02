@@ -1120,3 +1120,123 @@ Do not regress these rules:
 Next production target:
 - next open publishing slot after Job 2 is the next future configured slot among 13:00, 16:00, 22:00 WAT
 - continue using duplicate screening, exact-scene verification, approved render baseline, owner preview approval, then schedule.
+
+## Checkpoint — 2026-10-02 slot-performance learning system
+
+Historical channel data was analyzed before changing future publishing times.
+
+Mature-upload sample used:
+- 28 public uploads published before 2026-09-01
+- recent uploads were analyzed separately so very fresh videos would not distort long-term comparisons
+
+Historical WAT findings:
+- around 13:00 WAT:
+  - 2 mature uploads
+  - median views about 17,991
+- around 15:00 WAT:
+  - 5 mature uploads
+  - median views about 29,059
+  - mean views about 58,860
+  - top historical examples included ~190K and ~70K
+- around 23:00 WAT:
+  - 18 mature uploads
+  - median views about 13,050
+  - mean views about 19,830
+  - many strong 30K–49K videos but also many very low performers
+- isolated 02:00 and 05:00 WAT outliers were NOT treated as reliable slot evidence because each had only one observation
+
+Interpretation:
+- content/topic/scene quality still explains far more performance variance than posting time
+- the strongest repeatable historical signal is closer to 15:00 WAT than 16:00 WAT
+- 13:00 WAT remains under-tested
+- late evening works but is volatile
+- therefore the next controlled schedule experiment is 13:00 / 15:00 / 22:00 WAT
+
+Authoritative experimental publishing slots for FUTURE jobs:
+- 13:00 WAT
+- 15:00 WAT
+- 22:00 WAT
+
+Important:
+- Job 2 remains scheduled at its already-approved 22:00 WAT slot
+- no existing scheduled job was moved
+- this changes only future slot assignment
+- config/defaults.json and the server fallback both use 13:00 / 15:00 / 22:00
+
+### Automatic performance snapshots
+
+A new persistent table now exists:
+- performance_snapshots
+
+Each successfully scheduled video receives checkpoints relative to the scheduled public release:
+- 1 hour
+- 6 hours
+- 24 hours
+- 48 hours
+- 7 days
+
+Stored per checkpoint:
+- job ID
+- YouTube video ID
+- checkpoint label
+- target timestamp
+- actual capture timestamp
+- views
+- likes
+- comments
+- privacy state
+- YouTube published_at
+- error, if collection fails
+
+Collection behavior:
+- collector runs once shortly after V1 starts
+- collector runs every 15 minutes while the service is alive
+- only due, uncaptured checkpoints are requested
+- failed captures remain pending and are retried later
+- manual endpoint also exists:
+  POST /api/performance/collect
+
+Data source:
+- authenticated YouTube Data API readback for the owned channel/video
+- current OAuth scopes already support this
+- deeper YouTube Analytics metrics such as engagedViews/retention are not yet part of this collector and may require additional analytics authorization later
+
+Job 2 was backfilled with all five checkpoints using its YouTube publish time:
+- 1h: 2026-10-02T22:00:00Z
+- 6h: 2026-10-03T03:00:00Z
+- 24h: 2026-10-03T21:00:00Z
+- 48h: 2026-10-04T21:00:00Z
+- 7d: 2026-10-09T21:00:00Z
+
+At this checkpoint none are due yet, so the collector correctly returned due=0 / captured=0.
+
+### Dashboard
+
+A new clean section now exists:
+- Slot learning
+
+It shows:
+- 1 PM WAT
+- 3 PM WAT
+- 10 PM WAT
+- latest captured checkpoint/views for each slot when available
+- next pending checkpoint when no result has been captured yet
+
+There is also a manual “Refresh metrics” action.
+
+The dashboard should remain restrained; do not turn slot learning into a generic analytics-card wall.
+
+### Experiment discipline
+
+Do not declare a winning slot from one or two posts.
+
+Use the automatic snapshots to compare like-for-like checkpoints:
+- 1h vs 1h
+- 6h vs 6h
+- 24h vs 24h
+- 48h vs 48h
+- 7d vs 7d
+
+Continue logging story/topic, source competitor, scene duration and slot so time-of-day is not confused with stronger/weaker content.
+
+Target: collect at least 15–30 new-format uploads before making a strong permanent timing decision.

@@ -34,8 +34,15 @@
   "publishingTimezone": "Africa/Lagos",
   "publishingSlots": [
     "13:00",
-    "16:00",
+    "15:00",
     "22:00"
   ],
-  "reviewLeadMinutes": 90
+  "reviewLeadMinutes": 90,
+  "performanceCheckpointsHours": [
+    1,
+    6,
+    24,
+    48,
+    168
+  ]
 }

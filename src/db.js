@@ -18,6 +18,27 @@ ensureColumn('jobs','slot_time','TEXT');
 ensureColumn('jobs','scheduled_publish_at','TEXT');
 ensureColumn('jobs','youtube_publish_at','TEXT');
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS performance_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL,
+  video_id TEXT NOT NULL,
+  checkpoint TEXT NOT NULL,
+  target_at TEXT NOT NULL,
+  captured_at TEXT,
+  views INTEGER,
+  likes INTEGER,
+  comments INTEGER,
+  privacy TEXT,
+  published_at TEXT,
+  error TEXT,
+  UNIQUE(job_id,checkpoint),
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_performance_due
+ON performance_snapshots(captured_at,target_at);
+`);
+
 
 export function all(sql, params=[]) { return db.prepare(sql).all(...params); }
 export function get(sql, params=[]) { return db.prepare(sql).get(...params); }
