@@ -13,6 +13,11 @@ ensureColumn('candidates','duplicate_of_video_id','TEXT');
 ensureColumn('candidates','duplicate_reason','TEXT');
 ensureColumn('candidates','screened_at','TEXT');
 ensureColumn('jobs','preview_file','TEXT');
+ensureColumn('jobs','slot_date','TEXT');
+ensureColumn('jobs','slot_time','TEXT');
+ensureColumn('jobs','scheduled_publish_at','TEXT');
+ensureColumn('jobs','youtube_publish_at','TEXT');
+
 
 export function all(sql, params=[]) { return db.prepare(sql).all(...params); }
 export function get(sql, params=[]) { return db.prepare(sql).get(...params); }

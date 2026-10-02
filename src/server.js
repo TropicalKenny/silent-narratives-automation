@@ -8,7 +8,7 @@ import { all, get, run, setting, setSetting } from './db.js';
 import { setSecret, secretStatus, getSecret } from './secrets.js';
 import { extractVideoId, jobDir, cleanupJobVideos } from './utils.js';
 import { analyzeYouTube } from './gemini.js';
-import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo } from './youtube.js';
+import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus } from './youtube.js';
 import { renderShort } from './renderer.js';
 import { screenCandidatesAgainstHistory } from './duplicates.js';
 
@@ -145,6 +145,59 @@ async function screenAndPersistCandidates(candidateRows=null){
   return {checked:candidates.length,duplicates:result.duplicates.length,review:result.review.length};
 }
 
+
+const PUBLISH_TIMEZONE='Africa/Lagos';
+const DEFAULT_PUBLISHING_SLOTS=['13:00','16:00','22:00'];
+
+function publishingSlots(){
+  try{
+    const value=JSON.parse(setting('publishing_slots',JSON.stringify(DEFAULT_PUBLISHING_SLOTS)));
+    if(Array.isArray(value) && value.length) return value.map(String);
+  }catch{}
+  return DEFAULT_PUBLISHING_SLOTS;
+}
+function lagosDateString(date=new Date()){
+  const parts=new Intl.DateTimeFormat('en-CA',{
+    timeZone:PUBLISH_TIMEZONE,year:'numeric',month:'2-digit',day:'2-digit'
+  }).formatToParts(date);
+  const out=Object.fromEntries(parts.filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+  return out.year+'-'+out.month+'-'+out.day;
+}
+function addDays(dateString,days){
+  const d=new Date(dateString+'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate()+Number(days||0));
+  return d.toISOString().slice(0,10);
+}
+function slotIso(dateString,time){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(dateString))) throw new Error('Invalid publishing date.');
+  if(!/^\d{2}:\d{2}$/.test(String(time))) throw new Error('Invalid publishing time.');
+  return new Date(dateString+'T'+time+':00+01:00').toISOString();
+}
+function slotOccupied(date,time,ignoreJobId=null){
+  const row=ignoreJobId
+    ? get("SELECT id FROM jobs WHERE slot_date=? AND slot_time=? AND id!=? AND status NOT IN ('upload_failed','schedule_failed','rejected') LIMIT 1",[date,time,ignoreJobId])
+    : get("SELECT id FROM jobs WHERE slot_date=? AND slot_time=? AND status NOT IN ('upload_failed','schedule_failed','rejected') LIMIT 1",[date,time]);
+  return Boolean(row);
+}
+function nextOpenPublishingSlot(from=new Date()){
+  const today=lagosDateString(from);
+  for(let day=0;day<21;day++){
+    const date=addDays(today,day);
+    for(const time of publishingSlots()){
+      const publishAt=slotIso(date,time);
+      if(new Date(publishAt).getTime()<=from.getTime()+5*60*1000) continue;
+      if(!slotOccupied(date,time)) return {date,time,publishAt,timezone:PUBLISH_TIMEZONE};
+    }
+  }
+  throw new Error('No open publishing slot found in the next 21 days.');
+}
+function assignNextPublishingSlot(jobId){
+  const slot=nextOpenPublishingSlot();
+  run('UPDATE jobs SET slot_date=?,slot_time=?,scheduled_publish_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+      [slot.date,slot.time,slot.publishAt,jobId]);
+  return slot;
+}
+
 app.get('/health',(req,res)=>ok(res,{service:'silent-narratives-v1',version:'0.1.0'}));
 
 app.get('/api/state',(req,res)=>{
@@ -181,7 +234,9 @@ app.get('/api/state',(req,res)=>{
       minViews:Number(setting('min_views','5000000')),
       privacy:setting('youtube_privacy','private'),
       deleteAfterUpload:true,
-      publicBaseUrl:setting('public_base_url','')
+      publicBaseUrl:setting('public_base_url',''),
+      publishingTimezone:PUBLISH_TIMEZONE,
+      publishingSlots:publishingSlots()
     }
   });
 });
@@ -216,6 +271,10 @@ app.post('/api/settings',(req,res)=>{
     if(req.body.minViews) setSetting('min_views',Math.max(100000,Number(req.body.minViews)));
     if(['private','unlisted','public'].includes(req.body.privacy)) setSetting('youtube_privacy',req.body.privacy);
     if(typeof req.body.publicBaseUrl==='string') setSetting('public_base_url',req.body.publicBaseUrl.trim());
+    if(Array.isArray(req.body.publishingSlots)){
+      const slots=req.body.publishingSlots.map(String).filter(x=>/^\d{2}:\d{2}$/.test(x)).slice(0,6);
+      if(slots.length) setSetting('publishing_slots',JSON.stringify(slots));
+    }
     ok(res);
   }catch(e){fail(res,e);}
 });
@@ -315,8 +374,10 @@ app.post('/api/jobs/from-candidate/:id',(req,res)=>{
     const prior=get('SELECT id FROM jobs WHERE candidate_id=? ORDER BY id DESC LIMIT 1',[c.id]);
     if(prior) return ok(res,{jobId:prior.id,reused:true});
     const r=run('INSERT INTO jobs(candidate_id,source_url,status) VALUES(?,?,?)',[c.id,c.url,'draft']);
+    const jobId=Number(r.lastInsertRowid);
+    const slot=assignNextPublishingSlot(jobId);
     run("UPDATE candidates SET status='selected',used_at=CURRENT_TIMESTAMP WHERE id=?",[c.id]);
-    ok(res,{jobId:Number(r.lastInsertRowid)});
+    ok(res,{jobId,slot});
   }catch(e){fail(res,e);}
 });
 
@@ -325,7 +386,9 @@ app.post('/api/jobs/from-url',(req,res)=>{
     const url=String(req.body.url||'').trim();
     if(!extractVideoId(url)) throw new Error('Enter a valid YouTube video or Shorts URL.');
     const r=run('INSERT INTO jobs(source_url,status) VALUES(?,?)',[url,'draft']);
-    ok(res,{jobId:Number(r.lastInsertRowid)});
+    const jobId=Number(r.lastInsertRowid);
+    const slot=assignNextPublishingSlot(jobId);
+    ok(res,{jobId,slot});
   }catch(e){fail(res,e);}
 });
 
@@ -406,6 +469,63 @@ app.get('/api/jobs/:id/video',(req,res)=>{
   if(!file || !fs.existsSync(file)) return res.status(404).send('Render not available.');
   res.setHeader('Cache-Control','private, max-age=300');
   res.sendFile(path.resolve(file));
+});
+
+
+app.post('/api/jobs/:id/slot',(req,res)=>{
+  const id=Number(req.params.id);
+  try{
+    const job=get('SELECT id,status FROM jobs WHERE id=?',[id]);
+    if(!job) throw new Error('Job not found.');
+    const date=String(req.body.date||'').trim();
+    const time=String(req.body.time||'').trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Slot date must be YYYY-MM-DD.');
+    if(!publishingSlots().includes(time)) throw new Error('Time is not one of the configured publishing slots.');
+    if(slotOccupied(date,time,id)) throw new Error('That publishing slot is already occupied.');
+    const publishAt=slotIso(date,time);
+    if(new Date(publishAt).getTime()<=Date.now()+5*60*1000) throw new Error('Publishing slot must be in the future.');
+    run('UPDATE jobs SET slot_date=?,slot_time=?,scheduled_publish_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[date,time,publishAt,id]);
+    ok(res,{slot:{date,time,publishAt,timezone:PUBLISH_TIMEZONE}});
+  }catch(e){fail(res,e);}
+});
+
+app.post('/api/jobs/:id/schedule',async(req,res)=>{
+  const id=Number(req.params.id);
+  try{
+    const job=get('SELECT * FROM jobs WHERE id=?',[id]);
+    if(!job) throw new Error('Job not found.');
+    if(!job.render_file || !fs.existsSync(job.render_file)) throw new Error('Render the video before scheduling.');
+    if(!job.scheduled_publish_at) throw new Error('Assign a publishing slot before scheduling.');
+    const publishAt=new Date(job.scheduled_publish_at);
+    if(!Number.isFinite(publishAt.getTime()) || publishAt.getTime()<=Date.now()+5*60*1000) throw new Error('Scheduled publish time must be in the future.');
+
+    run("UPDATE jobs SET status='scheduling',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
+    const uploaded=await uploadVideo({
+      file:job.render_file,
+      title:job.yt_title,
+      description:job.description,
+      tags:job.tags,
+      privacy:'private',
+      publishAt:publishAt.toISOString()
+    });
+    const verified=await videoStatus(uploaded.videoId);
+    if(verified.privacy!=='private') throw new Error('YouTube scheduling verification failed: video is not private before publish time.');
+    const youtubePublishAt=verified.publishAt||publishAt.toISOString();
+
+    run("UPDATE jobs SET youtube_video_id=?,youtube_url=?,youtube_publish_at=?,upload_confirmed_at=CURRENT_TIMESTAMP,status='scheduled',updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      [uploaded.videoId,uploaded.url,youtubePublishAt,id]);
+
+    const cleaned=cleanupJobVideos(id);
+    if(cleaned){
+      run("UPDATE jobs SET scene_file=NULL,render_file=NULL,preview_file=NULL,deleted_at=CURRENT_TIMESTAMP,status='scheduled',updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
+    }else{
+      run("UPDATE jobs SET status='scheduled_cleanup_pending',error='Scheduling succeeded; local cleanup needs retry.',updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
+    }
+    ok(res,{scheduled:true,videoId:uploaded.videoId,url:uploaded.url,publishAt:youtubePublishAt,privacy:verified.privacy,localVideosDeleted:cleaned});
+  }catch(e){
+    run("UPDATE jobs SET status='schedule_failed',error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",[e.message,id]);
+    fail(res,e);
+  }
 });
 
 app.post('/api/jobs/:id/upload',async(req,res)=>{

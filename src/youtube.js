@@ -167,12 +167,16 @@ export async function ownChannelVideos() {
   },videos};
 }
 
-export async function uploadVideo({file,title,description,tags,privacy='private'}) {
+export async function uploadVideo({file,title,description,tags,privacy='private',publishAt=null}) {
   const token=await accessToken();
   const size=fs.statSync(file).size;
   const meta={
     snippet:{title,description,tags:parseTags(tags),categoryId:'1'},
-    status:{privacyStatus:privacy,selfDeclaredMadeForKids:false}
+    status:{
+      privacyStatus:publishAt?'private':privacy,
+      selfDeclaredMadeForKids:false,
+      ...(publishAt?{publishAt}: {})
+    }
   };
 
   const init=await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',{
@@ -203,5 +207,23 @@ export async function uploadVideo({file,title,description,tags,privacy='private'
   let data={};
   try { data=JSON.parse(raw); } catch {}
   if(!put.ok || !data.id) throw new Error(data?.error?.message || raw || 'YouTube upload failed.');
-  return {videoId:data.id,url:'https://youtu.be/'+data.id,status:put.status};
+  return {videoId:data.id,url:'https://youtu.be/'+data.id,status:put.status,youtubeStatus:data.status||null};
+}
+
+
+export async function videoStatus(videoId) {
+  const token=await accessToken();
+  const u=new URL(apiBase+'/videos');
+  u.searchParams.set('part','snippet,status');
+  u.searchParams.set('id',String(videoId));
+  const {data}=await jsonFetch(u,{headers:{Authorization:'Bearer '+token}});
+  const v=data.items?.[0];
+  if(!v) throw new Error('Uploaded YouTube video could not be read back.');
+  return {
+    videoId:v.id,
+    title:v.snippet?.title||'',
+    privacy:v.status?.privacyStatus||null,
+    publishAt:v.status?.publishAt||null,
+    uploadStatus:v.status?.uploadStatus||null
+  };
 }

@@ -116,6 +116,9 @@ export async function analyzeYouTube(url){
       {file_data:{file_uri:videoUrl}}
     ],{json:true,maxOutputTokens:1400});
     sceneMeta=JSON.parse(sceneResult.text);
+    if(Array.isArray(sceneMeta)) sceneMeta=sceneMeta[0]||{};
+    if(!sceneMeta || typeof sceneMeta!=='object') sceneMeta={};
+    if(!Array.isArray(sceneMeta.subtitle_text)) sceneMeta.subtitle_text=[];
     sceneMeta._model=sceneResult.model;
   }catch(e){
     sceneMeta={edit_note:'Scene metadata generation failed: '+e.message,subtitle_text:[]};

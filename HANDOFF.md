@@ -674,3 +674,129 @@ Current approved visual baseline includes:
 - high-quality separate upload master
 
 Job 1 remains not uploaded. Next action after this checkpoint is owner-directed upload/automation continuation.
+
+## Checkpoint — 2026-10-02 first private upload + Nigeria slot engine
+
+### First full upload validation passed
+
+Approved Deep Water Job 1 was uploaded PRIVATE to YouTube.
+
+YouTube result:
+- video ID: G4SYn4kf-sI
+- URL: https://youtu.be/G4SYn4kf-sI
+- privacy verified through channel history sync: private
+- correct generated title present
+- upload_confirmed_at recorded
+- deleted_at recorded at the successful cleanup checkpoint
+- scene_file cleared
+- render_file cleared
+- preview_file cleared
+- entire work/1 directory removed after upload confirmation
+
+This proves the V1 upload + confirmed-delete lifecycle works end to end.
+
+### Authoritative publishing schedule
+
+Timezone:
+- Africa/Lagos
+- WAT / UTC+1
+
+Daily slots:
+- 13:00 WAT
+- 16:00 WAT
+- 22:00 WAT
+
+Stored in app settings and config/defaults.json.
+
+Scheduling fields added to jobs:
+- slot_date
+- slot_time
+- scheduled_publish_at
+- youtube_publish_at
+
+Scheduling design:
+- new jobs automatically receive the next open future publishing slot
+- scheduling uses YouTube publishAt with privacy kept private before the scheduled public release
+- do not depend on a VPS timer firing exactly at the publishing minute
+- scheduled uploads must be read back from YouTube and verified private before local cleanup
+- cleanup after successful scheduling follows the same transient-file deletion rule as normal upload
+
+New routes:
+- POST /api/jobs/:id/slot
+- POST /api/jobs/:id/schedule
+
+The scheduled-upload path is implemented but has NOT yet been tested with a completed future render. Do not call it proven until one real scheduled upload is verified.
+
+### Job 2 — current 22:00 WAT production job
+
+Candidate:
+- candidate ID 2
+- competitor: @JustMotorHead
+- source Short: https://www.youtube.com/shorts/MfD4Q-tElXM
+- source views at discovery: 47,407,906
+- story: The Passion of the Christ (2004), Pietro Sarubbi / Barabbas eye-contact with Jim Caviezel / Jesus
+
+Automatic slot assignment passed:
+- job ID: 2
+- slot date: 2026-10-02
+- slot time: 22:00 WAT
+- scheduled_publish_at: 2026-10-02T21:00:00.000Z
+
+Gemini package was regenerated after a fact-attribution correction.
+
+Current hook:
+In The Passion of the Christ (2004), director Mel Gibson ordered Pietro Sarubbi to avoid looking at Jim Caviezel until the cameras rolled to capture a raw, authentic reaction. When they finally locked eyes, Sarubbi, a lifelong atheist, later claimed he didn't see an actor, but felt he was looking at Jesus himself, a moment he said completely transformed his perspective.
+
+Important editorial rule added to config/master_prompt.md:
+- subjective testimony, personal belief, conversion, motive, health experience, or interpretation must be explicitly attributed rather than presented as independently proven fact.
+
+Gemini scene metadata normalization fixed:
+- if Gemini returns scene metadata as a one-item array, normalize it to an object
+- subtitle_text now persists correctly instead of being silently dropped
+
+Current Job 2 scene metadata:
+- exact target: Barabbas is released, reacts/laughs, then locks eyes with bloodied/bound Jesus
+- source Short reports only crowd noise/no spoken dialogue
+- proposed subtitle treatment is contextual/testimonial rather than fake dialogue
+
+### Scene-source verification result
+
+Tested extractable source:
+- Dailymotion: https://www.dailymotion.com/video/x19mrn0
+- downloaded successfully at 1920x824
+- duration about 116.6 seconds
+- local source: work/2/source-dm.mp4
+- verification proxy created and inspected with Gemini
+
+Result:
+- exact_scene_present: false
+- confidence: 1.0
+- Gemini identified it as a trailer montage that does NOT contain the exact Barabbas/Jesus eye-contact interaction
+
+Therefore:
+- this source is REJECTED for Job 2
+- do not render it
+- do not schedule Job 2 until an exact scene source is verified
+- wrong-scene substitution is prohibited even if the posting slot is approaching
+
+### Immediate continuation point
+
+1. Find another extractable/public/authorized source containing the exact Barabbas/Jesus release scene.
+2. Verify the source visually before extracting.
+3. Extract a clean 6–9 second segment with the original scene/crowd audio.
+4. Build subtitle timing around the actual visual beats because there is no useful spoken dialogue.
+5. Render using the approved Silent Narratives visual baseline.
+6. QA first frame, scene accuracy, motion, subtitle timing, A/V, and mobile preview.
+7. Owner review.
+8. Only after approval, test the new YouTube scheduling route.
+9. If the 22:00 slot cannot be met safely, move Job 2 to the next open slot rather than publish a wrong or unverified scene.
+
+### Dashboard follow-up still pending
+
+The backend slot engine is live, but the dashboard still needs to visually display:
+- 1 PM / 4 PM / 10 PM WAT slot labels
+- assigned slot date/time on production cards
+- scheduled state and YouTube publishAt
+- schedule action after owner approval
+
+Do not consider the slot UI finished until that is implemented and browser-QA'd.
