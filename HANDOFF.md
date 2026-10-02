@@ -502,3 +502,65 @@ Why not force 60 fps or 4K for this source:
 - exporter should stay source-aware; if future background/scene assets are genuinely higher-resolution/high-frame-rate, raise the master accordingly
 
 Current preview remains NOT uploaded. Owner approval is still required before private YouTube upload.
+
+## Checkpoint — 2026-10-02 first-frame and mobile preview performance
+
+Owner reported two preview problems:
+1. Safari/direct video preview showed an empty/black card on the first frame.
+2. Review video took too long to load on mobile.
+
+First-frame root cause:
+- full FFmpeg composition layers were not all present during the opening ~0.17–0.20 seconds.
+- simply removing visual fades was insufficient.
+
+First-frame fix:
+- renderer now creates the layered composite first.
+- it captures the first fully composed frame at about 0.20s.
+- final upload master begins with a deliberate ~0.20s micro-hold of that fully composed frame.
+- it then continues from that same source timestamp.
+- original audio remains mapped from 0.00 and is not cut/shifted.
+- current dialogue begins after the micro-hold, so A/V meaning remains intact.
+- literal decoded frame 0 was manually inspected and now contains:
+  - full dark Silent Narratives card
+  - real avatar
+  - brand/handle
+  - full hook
+  - visible Deep Water scene
+- final video and audio streams remain exactly 4.200s.
+
+Review performance root cause:
+- the public review route served the full high-quality upload master (~5.2 MB).
+- dashboard appended Date.now() as a query parameter, guaranteeing a cache miss on every refresh.
+- Nginx added Cache-Control: private, no-store to the entire Silent Narratives route.
+
+Performance fix:
+- renderer now creates two files:
+  - work/<job>/final.mp4 = upload master
+  - work/<job>/preview.mp4 = lightweight phone/browser review derivative
+- current Job 1 review derivative:
+  - 720×1280
+  - ~1.37 Mbps video
+  - AAC 48 kHz stereo ~128 kbps
+  - total size about 730–775 KB depending on render
+  - faststart enabled
+- /api/jobs/:id/video serves preview.mp4 by default.
+- /api/jobs/:id/video?master=1 serves the full master.
+- jobs table now includes preview_file.
+- upload cleanup also clears preview_file and deletes it with other transient files.
+- dashboard preview URL now uses the job updated_at version instead of Date.now(), so the browser cache is reused until a real rerender occurs.
+- Nginx now hides upstream Cache-Control for the Silent Narratives location and applies:
+  - video-review route: private, max-age=300
+  - all other Silent Narratives routes: private, no-store
+- public review route still supports Accept-Ranges and HTTP 206 partial responses.
+- VPS-side public transfer test for the ~793 KB review file:
+  - time to first byte about 0.023s
+  - total transfer about 0.029s on the origin network
+
+Nginx file modified outside Git:
+- /etc/nginx/sites-enabled/aurent-origin
+- nginx -t passed before reload.
+
+Important:
+- do not remove the lightweight review derivative when optimizing upload quality.
+- do not re-add Date.now() cache busting to preview URLs.
+- upload must continue using final.mp4, not preview.mp4.

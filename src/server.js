@@ -386,7 +386,7 @@ app.post('/api/jobs/:id/render',(req,res)=>{
     if(!job.hook) throw new Error('Analyze the source before rendering.');
     run("UPDATE jobs SET status='rendering',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
     const rendered=renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job)});
-    run("UPDATE jobs SET render_file=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,id]);
+    run("UPDATE jobs SET render_file=?,preview_file=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,rendered.preview||null,id]);
     ok(res,{rendered:true,duration:rendered.duration});
   }catch(e){
     run("UPDATE jobs SET status='error',error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",[e.message,id]);
@@ -395,9 +395,12 @@ app.post('/api/jobs/:id/render',(req,res)=>{
 });
 
 app.get('/api/jobs/:id/video',(req,res)=>{
-  const job=get('SELECT render_file FROM jobs WHERE id=?',[Number(req.params.id)]);
-  if(!job?.render_file || !fs.existsSync(job.render_file)) return res.status(404).send('Render not available.');
-  res.sendFile(path.resolve(job.render_file));
+  const job=get('SELECT render_file,preview_file FROM jobs WHERE id=?',[Number(req.params.id)]);
+  const wantsMaster=String(req.query.master||'')==='1';
+  const file=!wantsMaster && job?.preview_file && fs.existsSync(job.preview_file) ? job.preview_file : job?.render_file;
+  if(!file || !fs.existsSync(file)) return res.status(404).send('Render not available.');
+  res.setHeader('Cache-Control','private, max-age=300');
+  res.sendFile(path.resolve(file));
 });
 
 app.post('/api/jobs/:id/upload',async(req,res)=>{
@@ -419,7 +422,7 @@ app.post('/api/jobs/:id/upload',async(req,res)=>{
 
     const cleaned=cleanupJobVideos(id);
     if(cleaned){
-      run("UPDATE jobs SET scene_file=NULL,render_file=NULL,deleted_at=CURRENT_TIMESTAMP,status='uploaded',updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
+      run("UPDATE jobs SET scene_file=NULL,render_file=NULL,preview_file=NULL,deleted_at=CURRENT_TIMESTAMP,status='uploaded',updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
     } else {
       run("UPDATE jobs SET status='uploaded_cleanup_pending',error='Upload succeeded; local cleanup needs retry.',updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
     }

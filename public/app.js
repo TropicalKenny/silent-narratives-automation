@@ -140,7 +140,7 @@ function renderJobs(){
     const image=thumb(j.source_url);
     const rendered=j.status==='rendered'&&j.render_file;
     let preview=image?'<img src="'+image+'" alt="">':'Preview';
-    if(rendered)preview='<video controls playsinline src="'+BASE+'/api/jobs/'+j.id+'/video?ts='+Date.now()+'"></video>';
+    if(rendered)preview='<video controls playsinline src="'+BASE+'/api/jobs/'+j.id+'/video?v='+encodeURIComponent(j.updated_at||j.id)+'"></video>';
     let action='';
     if(!j.hook)action='<button onclick="analyzeJob('+j.id+')">Generate package</button>';
     else if(!j.scene_file)action='<label class="file-action-btn">Add scene<input type="file" accept="video/*" onchange="uploadScene('+j.id+',this)"></label>';

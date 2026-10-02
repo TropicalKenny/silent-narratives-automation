@@ -116,6 +116,8 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   const maskSvg=path.join(dir,'clip-mask.svg');
   const maskPng=path.join(dir,'clip-mask.png');
   const assFile=path.join(dir,'subtitles.ass');
+  const composite=path.join(dir,'composite.mp4');
+  const openingFrame=path.join(dir,'opening-frame.png');
   const output=path.join(dir,'final.mp4');
   const media=probeMedia(sceneFile);
   const duration=media.duration;
@@ -136,10 +138,10 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
   const filter=
     '[0:v]trim=duration='+d+',setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=5:5:0.25:5:5:0.0,setsar=1[bg];'+
-    '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+','+
+    '[1:v]setpts=PTS-STARTPTS-0.05/TB,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+','+
       'scale=1530:860:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:859,'+
       "zoompan=z='min(1.032,1+on*0.00025)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1044x859:fps=30,"+
-      'fade=t=in:st=0:d=0.14,format=rgba[cliprgb];'+
+      'format=rgba[cliprgb];'+
     '[3:v]scale=1044:859,format=gray[mask];[cliprgb][mask]alphamerge[clip];'+
     '[2:v]fade=t=in:st=0:d=0.16,format=rgba[cardfx];'+
     '[bg][cardfx]overlay=0:0[card];[card][clip]overlay=18:644[comp];'+
@@ -149,7 +151,36 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   args.push('-filter_complex',filter,'-map','[outv]','-map','1:a?','-t',String(d),'-r','30',
     '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-crf','12',
     '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-    '-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',output);
+    '-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',composite);
   run('/usr/bin/ffmpeg',args);
-  return {output,duration};
+
+  const hold=Math.min(0.20,Math.max(0.10,d*0.08));
+  run('/usr/bin/ffmpeg',[
+    '-y','-ss',String(hold),'-i',composite,'-frames:v','1',openingFrame
+  ]);
+  const holdFilter=
+    '[0:v]trim=duration='+hold+',setpts=PTS-STARTPTS,scale=1080:1920,setsar=1[hold];'+
+    '[1:v]trim=start='+hold+':duration='+Math.max(0.1,d-hold)+',setpts=PTS-STARTPTS[rest];'+
+    '[hold][rest]concat=n=2:v=1:a=0[outv]';
+  run('/usr/bin/ffmpeg',[
+    '-y','-loop','1','-framerate','30','-i',openingFrame,'-i',composite,
+    '-filter_complex',holdFilter,
+    '-map','[outv]','-map','1:a?','-t',String(d),'-r','30',
+    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-crf','15',
+    '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
+    '-c:a','copy','-movflags','+faststart',output
+  ]);
+
+  // Keep the upload master untouched. Generate a much lighter review copy for phone/browser playback.
+  const preview=path.join(dir,'preview.mp4');
+  run('/usr/bin/ffmpeg',[
+    '-y','-i',output,
+    '-vf','scale=720:1280:flags=lanczos',
+    '-c:v','libx264','-profile:v','high','-level','3.1','-preset','veryfast','-crf','23',
+    '-maxrate','2800k','-bufsize','5600k','-pix_fmt','yuv420p',
+    '-c:a','aac','-b:a','128k','-ar','48000',
+    '-movflags','+faststart',preview
+  ]);
+
+  return {output,preview,duration};
 }

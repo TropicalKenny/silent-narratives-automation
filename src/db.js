@@ -12,6 +12,7 @@ function ensureColumn(table,name,definition) {
 ensureColumn('candidates','duplicate_of_video_id','TEXT');
 ensureColumn('candidates','duplicate_reason','TEXT');
 ensureColumn('candidates','screened_at','TEXT');
+ensureColumn('jobs','preview_file','TEXT');
 
 export function all(sql, params=[]) { return db.prepare(sql).all(...params); }
 export function get(sql, params=[]) { return db.prepare(sql).get(...params); }
