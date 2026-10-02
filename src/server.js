@@ -64,25 +64,8 @@ function loginPage(error=''){
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#f5f7fa;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}.card{width:min(100%,420px);background:#12161c;border:1px solid #252b34;border-radius:20px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.35)}.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8f9aaa;margin:0 0 10px}.brand{font-size:28px;line-height:1.1;margin:0 0 8px}.muted{color:#9aa4b2;margin:0 0 24px;line-height:1.55}label{display:block;font-size:13px;color:#c5ccd5;margin:14px 0 7px}input{width:100%;border:1px solid #303844;background:#0d1117;color:#fff;border-radius:12px;padding:14px 15px;font:inherit;outline:none}input:focus{border-color:#758298;box-shadow:0 0 0 3px rgba(117,130,152,.15)}button{width:100%;margin-top:18px;border:0;border-radius:12px;padding:14px 16px;background:#f5f7fa;color:#0b0d10;font:700 15px inherit;cursor:pointer}.error{background:#31181a;border:1px solid #673034;color:#ffb9bd;padding:11px 12px;border-radius:10px;margin:0 0 14px;font-size:13px}.foot{margin:18px 0 0;color:#697386;font-size:12px;text-align:center}</style></head><body><main class="card"><p class="eyebrow">VPS AUTOMATION</p><h1 class="brand">Silent Narratives</h1><p class="muted">Sign in to the V1 automation dashboard.</p>${message}<form method="post" action="login"><label for="username">Username</label><input id="username" name="username" autocomplete="username" autocapitalize="none" required><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in</button></form><p class="foot">Protected VPS dashboard</p></main></body></html>`;
 }
 
-app.get('/login',(req,res)=>{
-  if(validSession(req)) return res.redirect('./');
-  res.set('Cache-Control','no-store').send(loginPage(''));
-});
-app.post('/login',(req,res)=>{
-  const user=String(req.body?.username||'').trim().toLowerCase();
-  const pass=String(req.body?.password||'');
-  const passHash=crypto.createHash('sha256').update(pass).digest('hex');
-  if(user!=='kenny' || !passwordHashes().includes(passHash)){
-    return res.status(401).set('Cache-Control','no-store').send(loginPage('Incorrect username or password.'));
-  }
-  const cookie=SESSION_COOKIE+'='+encodeURIComponent(makeSession())+'; Path=/silent-narratives; Max-Age='+SESSION_MAX_AGE+'; HttpOnly; Secure; SameSite=Lax';
-  res.setHeader('Set-Cookie',cookie);
-  res.redirect('./');
-});
-app.post('/logout',(req,res)=>{
-  res.setHeader('Set-Cookie',SESSION_COOKIE+'=; Path=/silent-narratives; Max-Age=0; HttpOnly; Secure; SameSite=Lax');
-  res.redirect('./login');
-});
+app.get('/login',(req,res)=>res.redirect('./'));
+app.post('/login',(req,res)=>res.redirect('./'));
 
 function dashboardAuth(req,res,next){ next(); }
 app.use(dashboardAuth);
