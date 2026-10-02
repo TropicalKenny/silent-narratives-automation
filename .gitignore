@@ -1,0 +1,12 @@
+node_modules/
+data/*.db
+data/*.db-*
+data/secrets.json
+data/.app-key
+work/*
+!work/.gitkeep
+assets/uploads/*
+logs/*
+.env
+*.log
+.DS_Store

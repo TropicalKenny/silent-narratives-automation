@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+const dataDir = path.resolve('data');
+fs.mkdirSync(dataDir, { recursive: true });
+export const db = new DatabaseSync(path.join(dataDir, 'silent-narratives.db'));
+db.exec("PRAGMA journal_mode=WAL;\nPRAGMA foreign_keys=ON;\nCREATE TABLE IF NOT EXISTS competitors (id INTEGER PRIMARY KEY AUTOINCREMENT, handle TEXT NOT NULL UNIQUE, channel_id TEXT, name TEXT, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);\nCREATE TABLE IF NOT EXISTS candidates (id INTEGER PRIMARY KEY AUTOINCREMENT, video_id TEXT NOT NULL UNIQUE, competitor_id INTEGER, title TEXT, url TEXT NOT NULL, views INTEGER DEFAULT 0, published_at TEXT, status TEXT NOT NULL DEFAULT 'new', discovered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, used_at TEXT, FOREIGN KEY (competitor_id) REFERENCES competitors(id) ON DELETE SET NULL);\nCREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id INTEGER, source_url TEXT, status TEXT NOT NULL DEFAULT 'draft', hook TEXT, yt_title TEXT, description TEXT, tags TEXT, raw_gemini TEXT, scene_meta TEXT, subtitle_text TEXT, scene_file TEXT, render_file TEXT, youtube_video_id TEXT, youtube_url TEXT, upload_confirmed_at TEXT, deleted_at TEXT, error TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE SET NULL);\nCREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+export function all(sql, params=[]) { return db.prepare(sql).all(...params); }
+export function get(sql, params=[]) { return db.prepare(sql).get(...params); }
+export function run(sql, params=[]) { return db.prepare(sql).run(...params); }
+export function setting(key, fallback=null) { const row=get('SELECT value FROM app_settings WHERE key=?',[key]); return row ? row.value : fallback; }
+export function setSetting(key,value) { run('INSERT INTO app_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',[key,String(value)]); }
+export function touchJob(id) { run('UPDATE jobs SET updated_at=CURRENT_TIMESTAMP WHERE id=?',[id]); }
