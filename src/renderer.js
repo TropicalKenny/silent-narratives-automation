@@ -90,14 +90,17 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   args.push('-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng);
 
   const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
+  const d=Number(duration.toFixed(3));
   const filter=
-    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[bg];'+
-    '[1:v]scale=1120:920:force_original_aspect_ratio=increase,crop=1046:859,'+
+    `[0:v]trim=duration=${d},setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[bg];`+
+    `[1:v]trim=duration=${d},setpts=PTS-STARTPTS,scale=1120:920:force_original_aspect_ratio=increase,crop=1046:859,`+
     "zoompan=z='min(zoom+0.00055,1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1046x859:fps=30[clip];"+
     '[bg][2:v]overlay=0:0[base];[base][clip]overlay=17:645[comp];'+
     "[comp]ass='"+assEsc+"'[outv]";
 
-  args.push('-filter_complex',filter,'-map','[outv]','-map','1:a?','-t',String(duration),'-r','30',
+  // Audio is intentionally taken only from the main scene (input 1).
+  // The gameplay background may contain an audio stream, but it is never mapped.
+  args.push('-filter_complex',filter,'-map','[outv]','-map','1:a?','-t',String(d),'-r','30',
     '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p',
     '-c:a','aac','-b:a','160k','-movflags','+faststart',output);
   run('ffmpeg',args);
