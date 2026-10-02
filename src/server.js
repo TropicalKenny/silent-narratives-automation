@@ -173,14 +173,25 @@ app.post('/api/settings/secrets',(req,res)=>{
   }catch(e){fail(res,e);}
 });
 
-app.post('/api/assets/background',upload.single('background'),(req,res)=>{
-  try{
-    if(!req.file) throw new Error('Background video is required.');
-    const dest=path.join(ROOT,'assets','background.mp4');
-    fs.copyFileSync(req.file.path,dest);
-    fs.rmSync(req.file.path,{force:true});
-    ok(res,{background:true});
-  }catch(e){fail(res,e);}
+app.post('/api/assets/background',(req,res)=>{
+  upload.single('background')(req,res,(uploadErr)=>{
+    try{
+      if(uploadErr) throw uploadErr;
+      if(!req.file) throw new Error('No video file was received. Choose the gameplay video again and retry.');
+      const dest=path.join(ROOT,'assets','background.mp4');
+      fs.copyFileSync(req.file.path,dest);
+      fs.rmSync(req.file.path,{force:true});
+      if(String(req.query.redirect||'')==='1') return res.redirect(303,baseUrl(req)+'/?background=ready');
+      ok(res,{background:true});
+    }catch(e){
+      try{ if(req.file?.path) fs.rmSync(req.file.path,{force:true}); }catch{}
+      if(String(req.query.redirect||'')==='1'){
+        const msg=encodeURIComponent(e?.code==='LIMIT_FILE_SIZE'?'Video is too large. Maximum upload size is 600 MB.':(e?.message||'Upload failed.'));
+        return res.redirect(303,baseUrl(req)+'/?background_error='+msg);
+      }
+      fail(res,e);
+    }
+  });
 });
 
 app.post('/api/competitors',async(req,res)=>{

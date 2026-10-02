@@ -58,8 +58,8 @@
           <span id="backgroundStatus" class="status">Unknown</span>
         </div>
         <p class="muted">Upload the fixed gameplay background used behind the Silent Narratives card. It is preserved between jobs.</p>
-        <form id="backgroundForm" class="upload-row">
-          <input type="file" name="background" accept="video/*" required>
+        <form id="backgroundForm" class="upload-row" action="api/assets/background?redirect=1" method="post" enctype="multipart/form-data">
+          <input type="file" name="background" accept="video/mp4,video/quicktime,video/*" required>
           <button type="submit">Upload background</button>
         </form>
       </section>

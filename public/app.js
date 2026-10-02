@@ -107,14 +107,6 @@ $('#secretsForm').addEventListener('submit',async e=>{
     e.target.reset();toast('Configuration saved on VPS');await refresh();
   }catch(err){toast(err.message,true);}
 });
-$('#backgroundForm').addEventListener('submit',async e=>{
-  e.preventDefault();
-  try{
-    const f=new FormData(e.target);toast('Uploading background');
-    await api('/api/assets/background',{method:'POST',body:f});
-    e.target.reset();toast('Gameplay background ready');await refresh();
-  }catch(err){toast(err.message,true);}
-});
 $('#settingsForm').addEventListener('submit',async e=>{
   e.preventDefault();
   try{
