@@ -15,7 +15,7 @@ function formatSlot(j){
   const ap=h>=12?'PM':'AM';
   return j.slot_date+' · '+hour+':'+String(m||0).padStart(2,'0')+' '+ap+' WAT';
 }
-function statusTone(s=''){return ['rendered','uploaded','scene_ready','analyzed'].includes(s)?'ok':s.includes('error')||s.includes('failed')?'bad':['analyzing','rendering','uploading'].includes(s)?'warn':'';}
+function statusTone(s=''){return ['rendered','uploaded','scheduled','scene_ready','analyzed'].includes(s)?'ok':s.includes('error')||s.includes('failed')?'bad':['analyzing','rendering','uploading','scheduling'].includes(s)?'warn':'';}
 function toast(msg,error=false){const t=$('#toast');t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(window._toast);window._toast=setTimeout(()=>t.className='toast',3500);}
 async function api(url,opts={}){const r=await fetch(url.startsWith('/')?BASE+url:url,opts);let d={};try{d=await r.json();}catch{}if(!r.ok||d.ok===false)throw new Error(d.error||('Request failed '+r.status));return d;}
 function openSettings(){$('#settingsDialog').showModal();}
@@ -34,7 +34,10 @@ async function refresh(){
 window.refresh=refresh;
 
 function availableSources(){return(STATE?.candidates||[]).filter(c=>c.status==='new');}
-function activeJobs(){return(STATE?.jobs||[]).filter(j=>j.status!=='uploaded');}
+function activeJobs(){return(STATE?.jobs||[]).filter(j=>!['uploaded','scheduled','scheduled_cleanup_pending'].includes(j.status));}
+function lagosToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:STATE?.settings?.publishingTimezone||'Africa/Lagos',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function slotLabel(time=''){const [h,m]=String(time).split(':').map(Number);if(!Number.isFinite(h))return time||'';const ap=h>=12?'PM':'AM';const hh=h%12||12;return hh+':'+String(m||0).padStart(2,'0')+' '+ap;}
+function jobSlotLabel(j){return j?.slot_time?slotLabel(j.slot_time)+' WAT':'';}
 
 function render(){
   renderChannel();
@@ -71,17 +74,21 @@ function nextAction(j){
   if(!j.hook)return {label:'Generate package',fn:'analyzeJob('+j.id+')'};
   if(!j.scene_file)return {label:'Add scene',file:true,id:j.id};
   if(j.status!=='rendered'&&j.status!=='uploaded')return {label:'Render Short',fn:'renderJob('+j.id+')'};
-  if(j.status==='rendered')return {label:'Review & upload',fn:"document.getElementById('job-"+j.id+"').scrollIntoView({behavior:'smooth'})"};
+  if(j.status==='rendered')return {label:'Review · '+(jobSlotLabel(j)||'ready'),fn:"document.getElementById('job-"+j.id+"').scrollIntoView({behavior:'smooth'})"};
   return {label:'Uploaded',fn:''};
 }
 
 function renderToday(){
-  const jobs=activeJobs().slice(0,3);
-  $('#todayProgress').textContent=jobs.length+' of 3 in production';
+  const today=lagosToday();
+  const slots=STATE?.settings?.publishingSlots||['13:00','16:00','22:00'];
+  const todaysJobs=(STATE?.jobs||[]).filter(j=>j.slot_date===today && !['uploaded','scheduled','scheduled_cleanup_pending'].includes(j.status));
+  $('#todayProgress').textContent=todaysJobs.length+' of 3 in production';
   const sources=availableSources();
   const cards=[];
-  for(let i=0;i<3;i++){
-    const j=jobs[i];
+  for(let i=0;i<slots.length;i++){
+    const slot=slots[i];
+    const j=todaysJobs.find(x=>x.slot_time===slot);
+    const slotName=slotLabel(slot)+' WAT';
     if(j){
       const a=nextAction(j);
       let action='';
@@ -91,15 +98,15 @@ function renderToday(){
         action='<button onclick="'+a.fn+'">'+esc(a.label)+'</button>';
       }
       cards.push('<article class="production-card">'+
-        '<span class="production-number">VIDEO '+(i+1)+(j.slot_time?' · '+esc(formatSlot(j)):'')+'</span>'+
+        '<span class="production-number">VIDEO '+(i+1)+' · '+esc(slotName)+'</span>'+
         '<h3>'+esc(j.yt_title||j.hook||('Production job #'+j.id))+'</h3>'+
-        '<p>'+esc(j.hook?'Next production step':'Source selected. Generate the Gemini package.')+'</p>'+
+        '<p>'+esc(j.hook?'Assigned to today’s '+slotName+' publishing slot.':'Source selected for '+slotName+'. Generate the Gemini package.')+'</p>'+
         '<div class="production-state '+statusTone(j.status)+'"><i></i>'+esc(statusLabel(j.status))+'</div>'+
         action+'</article>');
     }else{
       cards.push('<article class="production-card">'+
-        '<span class="production-number">VIDEO '+(i+1)+'</span>'+
-        '<h3>Ready for a source</h3>'+
+        '<span class="production-number">VIDEO '+(i+1)+' · '+esc(slotName)+'</span>'+
+        '<h3>Open production slot</h3>'+
         '<p>'+(sources.length?sources.length+' screened recommendations are available.':'Run a source scan to find the next story.')+'</p>'+
         '<div class="production-state"><i></i>open</div>'+
         '<button class="secondary" onclick="'+(sources.length?"document.querySelector('.source-card')?.scrollIntoView({behavior:'smooth',block:'center'})":"discover()")+'">'+(sources.length?'Choose source':'Scan sources')+'</button>'+
@@ -152,7 +159,7 @@ function renderJobs(){
     if(!j.hook)action='<button onclick="analyzeJob('+j.id+')">Generate package</button>';
     else if(!j.scene_file)action='<label class="file-action-btn">Add scene<input type="file" accept="video/*" onchange="uploadScene('+j.id+',this)"></label>';
     else if(!rendered)action='<button onclick="renderJob('+j.id+')">Render Short</button>';
-    else if(j.scheduled_publish_at)action='<button onclick="scheduleJob('+j.id+')">Approve + schedule '+esc(formatSlot(j))+'</button>';
+    else if(j.scheduled_publish_at)action='<button onclick="scheduleJob('+j.id+')">Approve + schedule '+esc(jobSlotLabel(j))+'</button>';
     else action='<button onclick="uploadJob('+j.id+')">Approve + upload private</button>';
 
     const packageBlock=j.hook?'<details class="job-detail"><summary>Gemini package</summary><div class="package-grid">'+

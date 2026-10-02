@@ -871,3 +871,212 @@ Dashboard scheduling UI:
 
 Job 2 is NOT uploaded/scheduled yet.
 Owner approval of the rendered preview is the next action.
+
+## Checkpoint — 2026-10-02 daily publishing slots + first scheduled-production candidate
+
+### First real private upload validation succeeded
+
+Approved Deep Water Job 1 was uploaded to YouTube as PRIVATE.
+
+YouTube result:
+- video ID: G4SYn4kf-sI
+- URL: https://youtu.be/G4SYn4kf-sI
+- YouTube history sync verified privacy = private
+- title verified in channel history
+- upload confirmation timestamp stored
+- local cleanup occurred only after YouTube returned the real video ID
+- scene_file, render_file and preview_file were cleared
+- entire work/1 directory was deleted
+- channel history now contains this private test upload for duplicate prevention
+
+This proves the V1 upload + confirmed-cleanup path end-to-end.
+
+### Authoritative publishing schedule
+
+Timezone:
+- Africa/Lagos
+- WAT / UTC+1
+
+Daily publishing slots:
+1. 13:00 WAT
+2. 16:00 WAT
+3. 22:00 WAT
+
+These are now stored in app settings and config/defaults.json.
+
+Default review lead target:
+- 90 minutes before each slot
+
+### Slot engine
+
+New job columns:
+- slot_date
+- slot_time
+- scheduled_publish_at
+- youtube_publish_at
+
+New jobs created from either:
+- screened candidate
+- direct YouTube URL
+
+are automatically assigned to the next open future publishing slot.
+
+Slot conversion:
+- Nigeria is treated as UTC+1 year-round
+- 22:00 WAT = 21:00 UTC
+
+New API:
+- POST /api/jobs/:id/slot
+- POST /api/jobs/:id/schedule
+
+Scheduling behavior:
+- render must exist
+- assigned publish time must still be in the future
+- upload is sent to YouTube as PRIVATE with publishAt
+- app reads the uploaded video back from YouTube
+- verifies it is private before scheduled publication
+- stores the returned YouTube publishAt
+- only after YouTube confirms the scheduled upload does transient cleanup run
+- successful scheduled jobs become status scheduled
+- failed scheduling preserves files for retry
+
+Do NOT call the schedule route before owner review/approval.
+
+### Dashboard slot workflow
+
+Dashboard now understands the 3 fixed WAT production slots.
+
+Today cards are associated with:
+- Video 1 · 1:00 PM WAT
+- Video 2 · 4:00 PM WAT
+- Video 3 · 10:00 PM WAT
+
+Rendered jobs with an assigned slot show:
+- Approve + schedule [slot]
+
+Scheduled/uploaded jobs leave the active production list.
+
+The old private-upload action remains available only for jobs without a scheduled_publish_at value and for explicit testing.
+
+### Gemini reliability fixes
+
+Gemini scene metadata sometimes returned as a one-element array.
+
+src/gemini.js now normalizes:
+- array → first object
+- invalid/null → empty object
+- subtitle_text → always an array
+
+The master prompt now requires attribution for subjective/personal testimony:
+- personal beliefs
+- memories
+- claimed conversions
+- motives
+- other subjective experiences
+
+Do not present those as independently verified objective events.
+
+### Job 2 — 10 PM WAT candidate
+
+Candidate:
+- source candidate ID: 2
+- competitor: @JustMotorHead
+- competitor Short: https://www.youtube.com/shorts/MfD4Q-tElXM
+- competitor views at selection: ~47.4M
+
+Assigned slot:
+- date: 2026-10-02
+- time: 22:00 WAT
+- scheduled_publish_at: 2026-10-02T21:00:00.000Z
+
+Story:
+- The Passion of the Christ (2004)
+- Pietro Sarubbi / Barabbas
+- Mel Gibson keeping Sarubbi from looking at Jim Caviezel before the take
+- Sarubbi later describing the first look as feeling like he was seeing Jesus
+
+Current approved-for-review hook:
+“In The Passion of the Christ (2004), Mel Gibson kept Pietro Sarubbi from looking at Jim Caviezel until the cameras rolled. Sarubbi later said that first look felt like seeing Jesus himself—and changed his life.”
+
+The wording is intentionally attributed to Sarubbi.
+
+### Job 2 exact scene acquisition
+
+A Dailymotion source was tested first but rejected because it was only teaser/trailer footage.
+
+Exact scene source found:
+- Clip.Cafe exact movie clip
+- page: https://clip.cafe/the-passion-of-the-christ-2004/which-of-the-two-men-would-you-have-me-release-to-you/
+- direct public MP4 was exposed by the page
+- clip duration: ~17.86s
+- 1920×1080
+- stereo 48 kHz
+- movie timestamp reported by source: 00:49:47
+
+Selected source window:
+- original exact-clip start: 4.8s
+- duration: 6.2s
+- sequence: Barabbas reaction → Jesus close-up in the release-choice sequence
+
+The exact clip contained encoded letterboxing.
+cropdetect measured:
+- active picture: 1920×800
+- crop: 1920:800:0:140
+
+Job 2 scene.mp4 is cropped to the active image before the standard Silent Narratives renderer so no internal black letterbox bands appear.
+
+### Job 2 subtitles / motion
+
+Custom contextual subtitles:
+1. HE LATER SAID…
+2. HE SAW JESUS.
+
+These are contextual/attributed captions rather than fabricated movie dialogue.
+
+Timings stored in scene_meta:
+- HE LATER SAID…: 0.55–2.10s
+- HE SAW JESUS.: 2.25–4.60s
+
+The second phrase uses the approved dramatic payoff treatment and lands on Jesus’ close-up.
+
+### Job 2 final QA
+
+Final master:
+- duration: 6.200s
+- video duration: 6.200s
+- audio duration: 6.200s
+- 1080×1920 upload master
+- separate lightweight review preview
+
+Visual QA passed after:
+- shortening hook so it fits fully
+- removing source letterbox
+- forcing a clean rerender after stale-output detection
+- confirming scene fills rounded movie window
+
+Gemini final rendered-file QA:
+- scene_match: true
+- av_sync: true
+- estimated_offset_seconds: 0.0
+- subtitle_safe: true
+- verifier model: gemini-3.5-flash-lite (3.5 Flash returned 429 during this QA call)
+
+Current status:
+- Job 2 = rendered
+- NOT uploaded
+- NOT scheduled
+- owner review required
+- if owner approves while 22:00 WAT slot is still valid, call POST /api/jobs/2/schedule
+- if slot becomes too close/past, reassign Job 2 to the next open publishing slot before scheduling
+
+Review URL:
+https://vps-0868c90c.vps.ovh.ca/silent-narratives/api/jobs/2/video
+
+### Immediate next steps
+
+1. Owner reviews Job 2.
+2. If approved before slot cutoff, schedule for 22:00 WAT via YouTube publishAt.
+3. Verify YouTube reports private + correct publishAt.
+4. Verify work/2 transient files are deleted after scheduling confirmation.
+5. Build the reusable automatic exact-scene acquisition module from the now-proven Job 1 + Job 2 acquisition patterns.
+6. Fill tomorrow’s 13:00 / 16:00 / 22:00 production slots automatically.
