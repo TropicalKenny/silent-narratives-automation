@@ -8,7 +8,7 @@ import { all, get, run, setting, setSetting } from './db.js';
 import { setSecret, secretStatus, getSecret } from './secrets.js';
 import { extractVideoId, jobDir, cleanupJobVideos } from './utils.js';
 import { analyzeYouTube } from './gemini.js';
-import { resolveChannel, popularVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo } from './youtube.js';
+import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo } from './youtube.js';
 import { renderShort } from './renderer.js';
 
 const app=express();
@@ -130,6 +130,8 @@ app.get('/api/state',(req,res)=>{
   const competitors=all('SELECT * FROM competitors ORDER BY created_at DESC');
   const candidates=all("SELECT c.*, p.name competitor_name, p.handle competitor_handle FROM candidates c LEFT JOIN competitors p ON p.id=c.competitor_id ORDER BY c.views DESC, c.discovered_at DESC LIMIT 80");
   const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 40').map(j=>({...j,scene_meta:j.scene_meta?JSON.parse(j.scene_meta):null,subtitles:parseSubs(j)}));
+  const historyCount=Number(get('SELECT COUNT(*) count FROM channel_history')?.count||0);
+  const historyRecent=all('SELECT video_id,title,published_at,views,privacy FROM channel_history ORDER BY published_at DESC LIMIT 8');
   const s=secretStatus();
   const integrations={
     gemini:Boolean(s.gemini_api_key),
@@ -139,7 +141,7 @@ app.get('/api/state',(req,res)=>{
   };
   const assets={background:fs.existsSync(path.join(ROOT,'assets','background.mp4'))};
   ok(res,{
-    competitors,candidates,jobs,integrations,assets,
+    competitors,candidates,jobs,history:{count:historyCount,recent:historyRecent},integrations,assets,
     settings:{
       minViews:Number(setting('min_views','5000000')),
       privacy:setting('youtube_privacy','private'),
@@ -147,6 +149,25 @@ app.get('/api/state',(req,res)=>{
       publicBaseUrl:setting('public_base_url','')
     }
   });
+});
+
+
+app.post('/api/history/sync',async(req,res)=>{
+  try{
+    const data=await ownChannelVideos();
+    let synced=0;
+    for(const v of data.videos){
+      run(`INSERT INTO channel_history(video_id,title,description,published_at,views,duration,privacy,synced_at)
+           VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+           ON CONFLICT(video_id) DO UPDATE SET title=excluded.title,description=excluded.description,published_at=excluded.published_at,views=excluded.views,duration=excluded.duration,privacy=excluded.privacy,synced_at=CURRENT_TIMESTAMP`,
+          [v.videoId,v.title,v.description,v.publishedAt,v.views,v.duration,v.privacy]);
+      synced++;
+    }
+    setSetting('own_channel_id',data.channel.id);
+    setSetting('own_channel_title',data.channel.title);
+    setSetting('history_last_sync',new Date().toISOString());
+    ok(res,{synced,channel:data.channel});
+  }catch(e){fail(res,e);}
 });
 
 app.post('/api/settings',(req,res)=>{

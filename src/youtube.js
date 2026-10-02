@@ -112,6 +112,54 @@ async function accessToken() {
   return data.access_token;
 }
 
+
+export async function ownChannelVideos() {
+  const token=await accessToken();
+  const auth={Authorization:'Bearer '+token};
+
+  const channelsUrl=new URL(apiBase+'/channels');
+  channelsUrl.searchParams.set('part','id,snippet,contentDetails');
+  channelsUrl.searchParams.set('mine','true');
+  const channelData=(await jsonFetch(channelsUrl,{headers:auth})).data;
+  const channel=channelData.items?.[0];
+  if(!channel) throw new Error('Connected YouTube channel could not be read.');
+  const uploads=channel.contentDetails?.relatedPlaylists?.uploads;
+  if(!uploads) throw new Error('YouTube uploads playlist was not returned.');
+
+  const ids=[];
+  let pageToken='';
+  do {
+    const u=new URL(apiBase+'/playlistItems');
+    u.searchParams.set('part','contentDetails');
+    u.searchParams.set('playlistId',uploads);
+    u.searchParams.set('maxResults','50');
+    if(pageToken) u.searchParams.set('pageToken',pageToken);
+    const data=(await jsonFetch(u,{headers:auth})).data;
+    for(const item of data.items||[]) if(item.contentDetails?.videoId) ids.push(item.contentDetails.videoId);
+    pageToken=data.nextPageToken||'';
+  } while(pageToken && ids.length<1000);
+
+  const videos=[];
+  for(let i=0;i<ids.length;i+=50){
+    const batch=ids.slice(i,i+50);
+    const u=new URL(apiBase+'/videos');
+    u.searchParams.set('part','snippet,statistics,contentDetails,status');
+    u.searchParams.set('id',batch.join(','));
+    const data=(await jsonFetch(u,{headers:auth})).data;
+    for(const x of data.items||[]) videos.push({
+      videoId:x.id,
+      title:x.snippet?.title||'',
+      description:x.snippet?.description||'',
+      publishedAt:x.snippet?.publishedAt||null,
+      views:Number(x.statistics?.viewCount||0),
+      duration:x.contentDetails?.duration||null,
+      privacy:x.status?.privacyStatus||null
+    });
+  }
+  videos.sort((a,b)=>String(b.publishedAt||'').localeCompare(String(a.publishedAt||'')));
+  return {channel:{id:channel.id,title:channel.snippet?.title||'Silent Narratives'},videos};
+}
+
 export async function uploadVideo({file,title,description,tags,privacy='private'}) {
   const token=await accessToken();
   const size=fs.statSync(file).size;
