@@ -66,8 +66,8 @@ function makeOverlay(file,hook) {
     (avatar?'<image x="184" y="175" width="134" height="134" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" xlink:href="'+avatar+'"/>':
       '<circle cx="251" cy="242" r="67" fill="#232d31"/><text x="251" y="254" text-anchor="middle" font-family="DejaVu Sans" font-size="34" font-weight="700" fill="#ffffff">SN</text>')+
     '<text x="334" y="235" font-family="DejaVu Sans" font-size="37" font-weight="700" fill="#ffffff">SILENT NARRATIVES</text>'+
-    '<circle cx="812" cy="220" r="14" fill="#3ea6ff"/>'+
-    '<path d="M804 220 l5 5 l10 -11" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<polygon points="777,206 780,208.9 784,207.9 785.1,211.9 789.1,213 788.1,217 791,220 788.1,223 789.1,227 785.1,228.1 784,232.1 780,231.1 777,234 774,231.1 770,232.1 768.9,228.1 764.9,227 765.9,223 763,220 765.9,217 764.9,213 768.9,211.9 770,207.9 774,208.9" fill="#3ea6ff"/>'+
+    '<path d="M769.5 220 l5 5 l10 -11" fill="none" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>'+
     '<text x="329" y="280" font-family="DejaVu Sans" font-size="34" fill="#f0f0f0">@silentnarrativesYT</text>'+
     '<text x="540" y="'+startY+'" text-anchor="middle" font-family="DejaVu Sans" font-size="'+fontSize+'" font-weight="700" fill="#f4f4f4">'+tspans+'</text>'+
   '</svg>';

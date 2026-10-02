@@ -635,3 +635,42 @@ Current render:
 - video/audio aligned by final rendered-file verification
 
 Do not upload until owner approves this specific version.
+
+## Checkpoint — 2026-10-02 approved visual baseline and verified badge
+
+Owner approved the current Silent Narratives Short design, with one final badge correction.
+
+Verified badge correction:
+- previous badge had too much horizontal separation from SILENT NARRATIVES
+- previous mark was a plain blue circle
+- title text width at the current render scale ends around x≈754
+- previous badge began around x≈798, leaving about 44 px of dead space
+- badge is now positioned directly after the title with only a small intentional gap
+- badge is now a small blue rosette/burst rather than a plain circle
+- white check remains centered inside the badge
+- title, handle, hook, scene geometry, subtitles, motion, audio timing and gameplay treatment were otherwise left unchanged
+
+Owner status:
+- current visual design is approved
+- treat this renderer layout as the new authoritative visual baseline
+- future work must preserve this baseline unless the owner explicitly requests a redesign
+
+Current approved visual baseline includes:
+- dark charcoal card
+- thin light outline
+- real Silent Narratives avatar
+- SILENT NARRATIVES header
+- small blue verified rosette immediately after the title
+- @silentnarrativesYT handle
+- centered white story hook
+- rounded embedded scene
+- dramatic but restrained dialogue captions
+- timed payoff punch-in
+- gameplay background visible around/below card
+- silent gameplay audio
+- scene-only audio
+- verified A/V sync
+- lightweight mobile preview derivative
+- high-quality separate upload master
+
+Job 1 remains not uploaded. Next action after this checkpoint is owner-directed upload/automation continuation.
