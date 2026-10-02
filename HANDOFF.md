@@ -154,25 +154,27 @@ File: src/renderer.js
 
 Current technical behavior:
 - 1080×1920
-- 30 fps
-- background loop/trim matches scene duration
+- 30 fps, matching the native gameplay frame rate; 60 fps is not used because it would only duplicate frames from 30 fps gameplay / 23.976 fps movie source
+- background loop/trim matches the scene-audio master duration
 - background audio is never mapped
 - scene audio only
-- subtle scene zoom
-- ASS subtitle support
+- source fps is normalized before zoom so movie footage cannot end early
+- tpad/trim guards the last video frame so picture and audio end together
+- subtle scene push-in rather than aggressive template motion
+- phrase-level ASS subtitles with short fade + 96→100% micro-pop
+- subtitle design is limited to 1–2 concise chunks and stays inside the movie window
 
 IMPORTANT: current white visual card is rejected.
 
-Measured geometry from owner’s correct reference, normalized to 1080×1920:
-- outer card: about x 11, y 192, w 1056, h 1163
-- embedded movie window begins around y 720
-- embedded movie window is approximately full inner-card width and about 626 px high
+Measured geometry was rechecked directly against the owner reference screenshot on 2026-10-02. Final normalized 1080×1920 geometry:
+- outer card: x about 11, y about 131, width about 1058, height about 1374
+- embedded movie window: x 18, y about 644, width 1044, height 859
+- this tall 1044×859 media geometry is the correct reference; the earlier 1044×626 window was too short
+- avatar/header group is intentionally inset farther from the left than the rejected render
 - card fill is dark charcoal
-- card has light/white outline and rounded corners
+- card has a light outline and rounded corners
 - hook is centered white text
 - avatar comes from assets/channel-avatar.jpg
-
-Next renderer fix must use these measurements and a rounded movie-window mask.
 
 ## Gameplay background
 
@@ -384,11 +386,13 @@ Completed after the initial handoff was written:
 - Rerendered Job 1 successfully.
 - Current Job 1 final:
   - work/1/final.mp4
-  - duration about 4.2667s
-  - H.264 video
-  - AAC stereo 44.1 kHz
-  - source scene duration about 4.2535s
-  - background remains silent and loop/trimmed to scene duration
+  - exact video duration: 4.200s
+  - exact audio duration: 4.200s
+  - H.264 High Profile, BT.709, 1080×1920, 30 fps
+  - current video bitrate about 10.15 Mbps
+  - AAC-LC stereo, 48 kHz, about 290 kbps actual
+  - renderer target quality: libx264 slow preset, CRF 12, fast-start MP4
+  - background remains silent and loop/trimmed exactly to the master scene duration
 - Visual QA contact sheet:
   - work/1/final-reference-check-v2.jpg
 - The previous white-card render is superseded.
@@ -400,3 +404,45 @@ Current immediate next step:
 3. If approved, upload Job 1 PRIVATE.
 4. Verify YouTube video ID and automatic transient file cleanup.
 5. Then convert the proven scene-acquisition process into a reusable automatic scene-acquisition module for the 3-per-day workflow.
+
+
+## Checkpoint — timing, motion design and upload-master quality
+
+The owner reported that the embedded movie picture was ending before the scene audio/full Short. Root cause was identified precisely:
+
+- source scene video is 24000/1001 fps (~23.976 fps)
+- the old zoompan used d=1 while producing 30 fps output
+- one output frame was generated per source frame, so ~4.2s of source picture became ~3.4s of visible movie footage
+- audio stayed ~4.2s, creating the visible early-stop bug
+
+Fix:
+- normalize scene to 30 fps BEFORE zoompan
+- tpad with clone guard
+- trim picture to the same audio-master duration
+- final output now has video duration 4.200s and audio duration 4.200s
+- an end-frame QA image at ~4.05s confirmed the movie picture is still present
+
+Hand-edited motion/subtitle treatment now implemented:
+- actual scene dialogue only: “Do you know” / “I love you?”
+- two short caption chunks
+- bold high-contrast white captions with dark outline/shadow
+- captions remain inside the movie window
+- 85ms in / 110ms out fade
+- subtle 96→100% micro-pop per phrase
+- gentle scene push-in capped around 3.2%
+- short card/scene fade-in
+- no bouncing, spinning, constant word effects, or decorative transition spam
+
+Research rationale:
+- short-form captions must remain quickly readable on mobile
+- motion should reinforce timing/hierarchy rather than decorate every element
+- use restrained phrase/word emphasis, not constant animation
+
+Upload-master rule:
+- highest meaningful Shorts master for this project is 1080×1920, not artificial 4K upscaling
+- current gameplay is native 30 fps; use 30 fps rather than fake 60 fps frame duplication
+- MP4 / H.264 High Profile / yuv420p / BT.709 / progressive
+- libx264 slow / CRF 12
+- AAC-LC stereo / 48 kHz / high bitrate
+- +faststart enabled
+- current Job 1 master is ~10.15 Mbps video, above YouTube’s standard 1080p reference bitrate while retaining constant-quality encoding
