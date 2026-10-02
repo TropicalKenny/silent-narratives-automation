@@ -13,7 +13,7 @@ import { renderShort } from './renderer.js';
 
 const app=express();
 
-const DASHBOARD_FALLBACK_HASH='2d3b7e18d37d299dda9d8bddfa0ed70691533808dfd5cec6fd87e148b09aed21';
+const DASHBOARD_FALLBACK_HASH='9b3552ed0606e3d05bcd006a04a75369bb0de8ee0372a78a4982155e660ee1cd';
 const SESSION_COOKIE='sn_session';
 const SESSION_MAX_AGE=7*24*60*60;
 
@@ -69,7 +69,7 @@ app.get('/login',(req,res)=>{
   res.set('Cache-Control','no-store').send(loginPage(''));
 });
 app.post('/login',(req,res)=>{
-  const user=String(req.body?.username||'').trim();
+  const user=String(req.body?.username||'').trim().toLowerCase();
   const pass=String(req.body?.password||'');
   const passHash=crypto.createHash('sha256').update(pass).digest('hex');
   if(user!=='kenny' || !passwordHashes().includes(passHash)){
