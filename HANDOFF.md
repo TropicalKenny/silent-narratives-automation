@@ -446,3 +446,59 @@ Upload-master rule:
 - AAC-LC stereo / 48 kHz / high bitrate
 - +faststart enabled
 - current Job 1 master is ~10.15 Mbps video, above YouTube’s standard 1080p reference bitrate while retaining constant-quality encoding
+
+## Checkpoint — 2026-10-02 timing, handcrafted motion, and high-quality master
+
+Owner identified that the embedded movie picture was ending before the scene audio/final Short. Root cause was confirmed:
+
+- source scene video: 24000/1001 fps (~23.976)
+- renderer used zoompan with d=1 and output fps=30 without first normalizing source timing
+- one output frame per source frame compressed the visible scene duration relative to its audio
+
+Fix:
+- normalize the scene to 30 fps BEFORE zoompan
+- reset timestamps before the motion filter
+- use tpad stop_mode=clone only as a tiny end-safety guard, not as the primary timing fix
+- master duration is now derived from the valid synchronized media duration
+- final Job 1 video stream duration: exactly 4.200s
+- final Job 1 audio stream duration: exactly 4.200s
+- end-of-video crop hashes differ at 3.20s, 3.80s and 4.10s, confirming the embedded movie picture continues changing instead of freezing early
+
+Handcrafted-edit treatment added:
+- subtle card fade-in
+- restrained continuous scene push-in, capped around 3.2%
+- custom burned-in dialogue captions inside the movie window
+- captions use short phrase chunks, dark outline/shadow and a 96→100% micro-pop with quick fade rather than generic bounce effects
+- current Job 1 dialogue chunks: “Do you know” / “I love you?”
+- treatment intentionally remains restrained so the existing Silent Narratives format stays recognizable
+
+Research/quality rationale:
+- captions are kept short/high-contrast for phone readability and muted viewing
+- animation is tied to dialogue/edit timing instead of decorating every word
+- do not upscale merely to claim a higher number; preserve meaningful source detail
+
+Current export master:
+- container: MP4 with faststart
+- canvas: 1080×1920 vertical
+- video: H.264 High Profile, Level 4.1
+- scan: progressive
+- pixel format: yuv420p (4:2:0)
+- color: BT.709 primaries / transfer / matrix
+- frame rate: 30 fps
+- encoder: libx264 preset slow
+- quality: CRF 15
+- measured Job 1 video bitrate: about 10.15 Mbps
+- audio: AAC-LC stereo
+- audio sample rate: 48 kHz
+- requested audio encode: 320 kbps; measured Job 1 about 290 kbps
+- final file duration: exactly 4.200s
+- Job 1 final size: about 5.49 MB
+
+Why not force 60 fps or 4K for this source:
+- gameplay source is native 30 fps and 512×560
+- Deep Water scene source is native ~23.976 fps and 1920×1080
+- 60 fps would synthesize/duplicate frames rather than add captured motion
+- 4K would upscale the low-resolution gameplay without adding real detail
+- exporter should stay source-aware; if future background/scene assets are genuinely higher-resolution/high-frame-rate, raise the master accordingly
+
+Current preview remains NOT uploaded. Owner approval is still required before private YouTube upload.
