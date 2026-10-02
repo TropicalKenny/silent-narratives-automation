@@ -800,3 +800,74 @@ The backend slot engine is live, but the dashboard still needs to visually displ
 - schedule action after owner approval
 
 Do not consider the slot UI finished until that is implemented and browser-QA'd.
+
+## Checkpoint — 2026-10-02 Job 2 exact-scene render ready for approval
+
+Job 2 progressed beyond the earlier rejected-trailer checkpoint.
+
+Exact source:
+- Clip.Cafe
+- page: https://clip.cafe/the-passion-of-the-christ-2004/which-of-the-two-men-would-you-have-me-release-to-you/
+- direct public clip was available through the Clip.Cafe player
+- movie timestamp: 00:49:47
+- exact public scene source was verified before rendering
+
+Selected scene:
+- local verified exact-source file: work/2/barabbas-exact.mp4
+- final scene file: work/2/scene.mp4
+- selected source segment: about 4.8–11.0s
+- final scene duration: about 6.20s
+- resolution: 1920×800
+- source frame rate: 23.976 fps
+- audio: 48 kHz stereo
+- visual sequence contains:
+  - Barabbas reacting/laughing during the release-choice sequence
+  - cut to Jesus close-up
+  - subsequent reactions within the exact Barabbas-release scene
+- this replaces the previously rejected unrelated Dailymotion trailer montage
+
+Final Job 2 package:
+- status: rendered
+- slot: 2026-10-02 at 22:00 WAT
+- scheduled_publish_at: 2026-10-02T21:00:00Z
+- render master: work/2/final.mp4
+- lightweight review: work/2/preview.mp4
+- master: 1080×1920, 30 fps, 48 kHz stereo
+- master video/audio duration: exactly 6.200s
+- review size: about 1.32 MB
+
+Current corrected hook:
+In The Passion of the Christ (2004), Mel Gibson kept Pietro Sarubbi from looking at Jim Caviezel until the cameras rolled. Sarubbi later said that first look felt like seeing Jesus himself—and changed his life.
+
+Current title:
+The Atheist Actor Who Saw "Jesus" On Set 😲🎬 #thepassionofthechrist #jimcaviezel #shorts
+
+Current contextual subtitles:
+- HE LATER SAID…
+- HE SAW JESUS.
+
+Subtitle timing:
+- HE LATER SAID…: about 0.55–2.10s
+- HE SAW JESUS.: about 2.25–4.60s
+
+These are contextual editorial captions, not fake spoken dialogue. The scene itself contains crowd/scene audio rather than useful spoken dialogue.
+
+Visual QA:
+- approved Silent Narratives visual baseline preserved
+- verified rosette preserved
+- gameplay background preserved
+- exact Barabbas/Jesus footage is visible
+- contextual dramatic subtitles appear within the movie window
+- first/mid/end QA frames generated
+- wrong-scene Dailymotion source remains rejected and must not be reused
+
+Dashboard scheduling UI:
+- production/job cards now display assigned slot date/time in WAT
+- rendered jobs with scheduled_publish_at show an “Approve + schedule” action
+- schedule action calls POST /api/jobs/:id/schedule
+- the UI clearly states that the file is uploaded private first and YouTube publishes it at the assigned slot
+- schedule action still requires explicit owner click/approval
+- do not auto-schedule without owner approval
+
+Job 2 is NOT uploaded/scheduled yet.
+Owner approval of the rendered preview is the next action.

@@ -8,6 +8,13 @@ function compact(n){n=Number(n||0);if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=
 function videoId(url=''){try{const u=new URL(url);if(u.pathname.startsWith('/shorts/'))return u.pathname.split('/')[2]||'';if(u.hostname.includes('youtu.be'))return u.pathname.split('/').filter(Boolean)[0]||'';return u.searchParams.get('v')||'';}catch{return'';}}
 function thumb(url=''){const id=videoId(url);return id?'https://i.ytimg.com/vi/'+encodeURIComponent(id)+'/hqdefault.jpg':'';}
 function statusLabel(s='draft'){return String(s).replaceAll('_',' ');}
+function formatSlot(j){
+  if(!j?.slot_date||!j?.slot_time)return '';
+  const [h,m]=String(j.slot_time).split(':').map(Number);
+  const hour=((h+11)%12)+1;
+  const ap=h>=12?'PM':'AM';
+  return j.slot_date+' · '+hour+':'+String(m||0).padStart(2,'0')+' '+ap+' WAT';
+}
 function statusTone(s=''){return ['rendered','uploaded','scene_ready','analyzed'].includes(s)?'ok':s.includes('error')||s.includes('failed')?'bad':['analyzing','rendering','uploading'].includes(s)?'warn':'';}
 function toast(msg,error=false){const t=$('#toast');t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(window._toast);window._toast=setTimeout(()=>t.className='toast',3500);}
 async function api(url,opts={}){const r=await fetch(url.startsWith('/')?BASE+url:url,opts);let d={};try{d=await r.json();}catch{}if(!r.ok||d.ok===false)throw new Error(d.error||('Request failed '+r.status));return d;}
@@ -84,7 +91,7 @@ function renderToday(){
         action='<button onclick="'+a.fn+'">'+esc(a.label)+'</button>';
       }
       cards.push('<article class="production-card">'+
-        '<span class="production-number">VIDEO '+(i+1)+'</span>'+
+        '<span class="production-number">VIDEO '+(i+1)+(j.slot_time?' · '+esc(formatSlot(j)):'')+'</span>'+
         '<h3>'+esc(j.yt_title||j.hook||('Production job #'+j.id))+'</h3>'+
         '<p>'+esc(j.hook?'Next production step':'Source selected. Generate the Gemini package.')+'</p>'+
         '<div class="production-state '+statusTone(j.status)+'"><i></i>'+esc(statusLabel(j.status))+'</div>'+
@@ -145,6 +152,7 @@ function renderJobs(){
     if(!j.hook)action='<button onclick="analyzeJob('+j.id+')">Generate package</button>';
     else if(!j.scene_file)action='<label class="file-action-btn">Add scene<input type="file" accept="video/*" onchange="uploadScene('+j.id+',this)"></label>';
     else if(!rendered)action='<button onclick="renderJob('+j.id+')">Render Short</button>';
+    else if(j.scheduled_publish_at)action='<button onclick="scheduleJob('+j.id+')">Approve + schedule '+esc(formatSlot(j))+'</button>';
     else action='<button onclick="uploadJob('+j.id+')">Approve + upload private</button>';
 
     const packageBlock=j.hook?'<details class="job-detail"><summary>Gemini package</summary><div class="package-grid">'+
@@ -158,7 +166,7 @@ function renderJobs(){
       '<div class="job-preview">'+preview+'</div>'+
       '<div class="job-copy"><h3>'+esc(j.yt_title||j.hook||('Production job #'+j.id))+'</h3>'+
       '<p>'+esc(j.hook||j.source_url||'Source selected')+'</p>'+
-      '<div class="job-status '+statusTone(j.status)+'"><i></i>'+esc(statusLabel(j.status))+'</div></div>'+
+      '<div class="job-status '+statusTone(j.status)+'"><i></i>'+esc(statusLabel(j.status))+(j.slot_time?' · '+esc(formatSlot(j)):'')+'</div></div>'+
       '<div class="job-action">'+action+'</div></div>'+packageBlock+'</article>';
   }).join('');
 }
@@ -198,6 +206,17 @@ window.removeCompetitor=async id=>{try{await api('/api/competitors/'+id,{method:
 window.analyzeJob=async id=>{try{toast('Gemini analysis started');await api('/api/jobs/'+id+'/analyze',{method:'POST'});toast('Package generated');await refresh();}catch(e){toast(e.message,true);await refresh();}};
 window.uploadScene=async(id,input)=>{try{if(!input.files[0])return;const f=new FormData();f.append('scene',input.files[0]);toast('Uploading scene');await api('/api/jobs/'+id+'/scene',{method:'POST',body:f});toast('Scene ready');await refresh();}catch(e){toast(e.message,true);}};
 window.renderJob=async id=>{try{toast('Rendering on VPS');await api('/api/jobs/'+id+'/render',{method:'POST'});toast('Render ready');await refresh();}catch(e){toast(e.message,true);await refresh();}};
+window.scheduleJob=async id=>{
+  const j=(STATE.jobs||[]).find(x=>x.id===id);
+  const slot=formatSlot(j);
+  if(!confirm('Schedule this approved Short for '+slot+'? It will upload to YouTube as private and YouTube will publish it at the assigned time. Temporary video files will be deleted after YouTube confirms the scheduled upload.'))return;
+  try{
+    toast('Scheduling on YouTube');
+    const d=await api('/api/jobs/'+id+'/schedule',{method:'POST'});
+    toast('Scheduled for '+slot+' · temporary videos deleted');
+    await refresh();
+  }catch(e){toast(e.message,true);await refresh();}
+};
 window.uploadJob=async id=>{if(!confirm('Upload this Short to YouTube as '+STATE.settings.privacy+'? Temporary video files will be deleted after YouTube confirms the upload.'))return;try{toast('Uploading to YouTube');await api('/api/jobs/'+id+'/upload',{method:'POST'});toast('Upload confirmed · temporary videos deleted');await refresh();}catch(e){toast(e.message,true);await refresh();}};
 window.discover=async()=>{const b=$('#discoverBtn');try{b.disabled=true;b.textContent='Scanning…';const d=await api('/api/discover',{method:'POST'});toast(d.found+' new sources found · duplicate check complete');await refresh();}catch(e){toast(e.message,true);}finally{b.disabled=false;b.textContent='Scan sources';}};
 window.syncHistory=async()=>{const b=$('#syncHistoryBtn');try{b.disabled=true;b.textContent='Syncing…';const d=await api('/api/history/sync',{method:'POST'});toast(d.synced+' uploads indexed · '+(d.screening?.duplicates||0)+' repeats blocked');await refresh();}catch(e){toast(e.message,true);}finally{b.disabled=false;b.textContent='Sync channel';}};
