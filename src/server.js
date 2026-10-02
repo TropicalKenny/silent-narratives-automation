@@ -40,6 +40,26 @@ const ROOT=path.resolve('.');
 const tempDir=path.join(ROOT,'work','_uploads');
 fs.mkdirSync(tempDir,{recursive:true});
 
+function cleanupConfirmedUploads(){
+  const confirmed=all("SELECT id FROM jobs WHERE upload_confirmed_at IS NOT NULL AND deleted_at IS NULL");
+  for(const job of confirmed){
+    const cleaned=cleanupJobVideos(job.id);
+    if(cleaned){
+      run("UPDATE jobs SET scene_file=NULL,render_file=NULL,deleted_at=CURRENT_TIMESTAMP,status='uploaded',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[job.id]);
+    }
+  }
+  const cutoff=Date.now()-(24*60*60*1000);
+  try{
+    for(const name of fs.readdirSync(tempDir)){
+      const p=path.join(tempDir,name);
+      const st=fs.statSync(p);
+      if(st.isFile() && st.mtimeMs<cutoff) fs.rmSync(p,{force:true});
+    }
+  }catch{}
+}
+cleanupConfirmedUploads();
+setInterval(cleanupConfirmedUploads,5*60*1000).unref();
+
 const upload=multer({
   dest:tempDir,
   limits:{fileSize:600*1024*1024}
@@ -309,7 +329,7 @@ app.get('/oauth/youtube/callback',async(req,res)=>{
   try{
     if(!req.query.code) throw new Error('Google did not return an authorization code.');
     await exchangeYoutubeCode(String(req.query.code),baseUrl(req));
-    res.redirect('/?youtube=connected');
+    res.redirect(baseUrl(req)+'/?youtube=connected');
   }catch(e){ res.status(400).send(e.message); }
 });
 
