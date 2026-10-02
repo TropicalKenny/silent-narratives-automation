@@ -118,7 +118,7 @@ export async function ownChannelVideos() {
   const auth={Authorization:'Bearer '+token};
 
   const channelsUrl=new URL(apiBase+'/channels');
-  channelsUrl.searchParams.set('part','id,snippet,contentDetails');
+  channelsUrl.searchParams.set('part','id,snippet,contentDetails,statistics');
   channelsUrl.searchParams.set('mine','true');
   const channelData=(await jsonFetch(channelsUrl,{headers:auth})).data;
   const channel=channelData.items?.[0];
@@ -157,7 +157,14 @@ export async function ownChannelVideos() {
     });
   }
   videos.sort((a,b)=>String(b.publishedAt||'').localeCompare(String(a.publishedAt||'')));
-  return {channel:{id:channel.id,title:channel.snippet?.title||'Silent Narratives'},videos};
+  return {channel:{
+    id:channel.id,
+    title:channel.snippet?.title||'Silent Narratives',
+    thumbnail:channel.snippet?.thumbnails?.high?.url||channel.snippet?.thumbnails?.medium?.url||channel.snippet?.thumbnails?.default?.url||'',
+    subscriberCount:Number(channel.statistics?.subscriberCount||0),
+    viewCount:Number(channel.statistics?.viewCount||0),
+    videoCount:Number(channel.statistics?.videoCount||videos.length)
+  },videos};
 }
 
 export async function uploadVideo({file,title,description,tags,privacy='private'}) {

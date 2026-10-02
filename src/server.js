@@ -10,6 +10,7 @@ import { extractVideoId, jobDir, cleanupJobVideos } from './utils.js';
 import { analyzeYouTube } from './gemini.js';
 import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo } from './youtube.js';
 import { renderShort } from './renderer.js';
+import { screenCandidatesAgainstHistory } from './duplicates.js';
 
 const app=express();
 
@@ -124,14 +125,36 @@ function parseSubs(job){
   catch{ return [job.subtitle_text]; }
 }
 
+
+async function screenAndPersistCandidates(candidateRows=null){
+  const history=all('SELECT video_id,title,description FROM channel_history ORDER BY published_at DESC');
+  const candidates=candidateRows || all("SELECT id,video_id,title,url FROM candidates WHERE status='new' AND screened_at IS NULL ORDER BY views DESC LIMIT 80");
+  if(!candidates.length) return {checked:0,duplicates:0,review:0};
+  const result=await screenCandidatesAgainstHistory(candidates,history);
+  for(const x of result.duplicates){
+    run("UPDATE candidates SET status='duplicate',duplicate_of_video_id=?,duplicate_reason=?,screened_at=CURRENT_TIMESTAMP WHERE id=?",
+      [x.published?.video_id||null,x.reason||'Same story as published content.',x.candidate.id]);
+  }
+  for(const x of result.review){
+    run("UPDATE candidates SET status='review_needed',duplicate_of_video_id=?,duplicate_reason=?,screened_at=CURRENT_TIMESTAMP WHERE id=?",
+      [x.published?.video_id||null,x.reason||'Needs manual duplicate verification.',x.candidate.id]);
+  }
+  for(const x of result.safe){
+    run("UPDATE candidates SET duplicate_of_video_id=NULL,duplicate_reason=NULL,screened_at=CURRENT_TIMESTAMP WHERE id=?",[x.candidate.id]);
+  }
+  return {checked:candidates.length,duplicates:result.duplicates.length,review:result.review.length};
+}
+
 app.get('/health',(req,res)=>ok(res,{service:'silent-narratives-v1',version:'0.1.0'}));
 
 app.get('/api/state',(req,res)=>{
   const competitors=all('SELECT * FROM competitors ORDER BY created_at DESC');
-  const candidates=all("SELECT c.*, p.name competitor_name, p.handle competitor_handle FROM candidates c LEFT JOIN competitors p ON p.id=c.competitor_id ORDER BY c.views DESC, c.discovered_at DESC LIMIT 80");
+  const candidates=all("SELECT c.*, p.name competitor_name, p.handle competitor_handle FROM candidates c LEFT JOIN competitors p ON p.id=c.competitor_id WHERE c.status NOT IN ('duplicate','review_needed') ORDER BY c.views DESC, c.discovered_at DESC LIMIT 80");
   const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 40').map(j=>({...j,scene_meta:j.scene_meta?JSON.parse(j.scene_meta):null,subtitles:parseSubs(j)}));
   const historyCount=Number(get('SELECT COUNT(*) count FROM channel_history')?.count||0);
   const historyRecent=all('SELECT video_id,title,published_at,views,privacy FROM channel_history ORDER BY published_at DESC LIMIT 8');
+  const duplicateBlocked=Number(get("SELECT COUNT(*) count FROM candidates WHERE status='duplicate'")?.count||0);
+  const reviewBlocked=Number(get("SELECT COUNT(*) count FROM candidates WHERE status='review_needed'")?.count||0);
   const s=secretStatus();
   const integrations={
     gemini:Boolean(s.gemini_api_key),
@@ -141,7 +164,19 @@ app.get('/api/state',(req,res)=>{
   };
   const assets={background:fs.existsSync(path.join(ROOT,'assets','background.mp4'))};
   ok(res,{
-    competitors,candidates,jobs,history:{count:historyCount,recent:historyRecent},integrations,assets,
+    competitors,candidates,jobs,history:{
+      count:historyCount,
+      recent:historyRecent,
+      channel:{
+        title:setting('own_channel_title','Silent Narratives'),
+        thumbnail:setting('own_channel_thumbnail',''),
+        subscribers:Number(setting('own_channel_subscribers','0')),
+        totalViews:Number(setting('own_channel_views','0')),
+        videoCount:Number(setting('own_channel_video_count',String(historyCount))),
+      duplicateBlocked,
+      reviewBlocked
+      }
+    },integrations,assets,
     settings:{
       minViews:Number(setting('min_views','5000000')),
       privacy:setting('youtube_privacy','private'),
@@ -165,8 +200,14 @@ app.post('/api/history/sync',async(req,res)=>{
     }
     setSetting('own_channel_id',data.channel.id);
     setSetting('own_channel_title',data.channel.title);
+    setSetting('own_channel_thumbnail',data.channel.thumbnail||'');
+    setSetting('own_channel_subscribers',data.channel.subscriberCount||0);
+    setSetting('own_channel_views',data.channel.viewCount||0);
+    setSetting('own_channel_video_count',data.channel.videoCount||0);
     setSetting('history_last_sync',new Date().toISOString());
-    ok(res,{synced,channel:data.channel});
+    run("UPDATE candidates SET screened_at=NULL WHERE status='new'");
+    const screening=await screenAndPersistCandidates();
+    ok(res,{synced,channel:data.channel,screening});
   }catch(e){fail(res,e);}
 });
 
@@ -240,6 +281,7 @@ app.post('/api/discover',async(req,res)=>{
     const competitors=all('SELECT * FROM competitors WHERE enabled=1');
     if(!competitors.length) throw new Error('Add at least one competitor channel.');
     let found=0;
+    const touchedIds=[];
     for(const c of competitors){
       let channelId=c.channel_id;
       if(!channelId){
@@ -251,14 +293,17 @@ app.post('/api/discover',async(req,res)=>{
       for(const v of videos){
         const exists=get('SELECT id,status FROM candidates WHERE video_id=?',[v.videoId]);
         if(!exists){
-          run('INSERT INTO candidates(video_id,competitor_id,title,url,views,published_at) VALUES(?,?,?,?,?,?)',[v.videoId,c.id,v.title,v.url,v.views,v.publishedAt]);
+          const inserted=run('INSERT INTO candidates(video_id,competitor_id,title,url,views,published_at) VALUES(?,?,?,?,?,?)',[v.videoId,c.id,v.title,v.url,v.views,v.publishedAt]);
+          touchedIds.push(Number(inserted.lastInsertRowid));
           found++;
         } else {
           run('UPDATE candidates SET views=?,title=?,published_at=? WHERE video_id=?',[v.views,v.title,v.publishedAt,v.videoId]);
         }
       }
     }
-    ok(res,{found});
+    const unscreened=all("SELECT id,video_id,title,url FROM candidates WHERE status='new' AND screened_at IS NULL ORDER BY views DESC LIMIT 80");
+    const screening=await screenAndPersistCandidates(unscreened);
+    ok(res,{found,screening});
   }catch(e){fail(res,e);}
 });
 
@@ -266,6 +311,7 @@ app.post('/api/jobs/from-candidate/:id',(req,res)=>{
   try{
     const c=get('SELECT * FROM candidates WHERE id=?',[Number(req.params.id)]);
     if(!c) throw new Error('Candidate not found.');
+    if(['duplicate','review_needed'].includes(c.status)) throw new Error('This source is blocked by duplicate protection.');
     const prior=get('SELECT id FROM jobs WHERE candidate_id=? ORDER BY id DESC LIMIT 1',[c.id]);
     if(prior) return ok(res,{jobId:prior.id,reused:true});
     const r=run('INSERT INTO jobs(candidate_id,source_url,status) VALUES(?,?,?)',[c.id,c.url,'draft']);

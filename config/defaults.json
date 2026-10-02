@@ -2,7 +2,7 @@
   "port": 8400,
   "minViews": 5000000,
   "targetDurationSeconds": 8,
-  "geminiModel": "gemini-3.8-flash",
+  "geminiModel": "gemini-3.5-flash",
   "geminiThinkingLevel": "high",
   "youtubePrivacy": "private",
   "deleteAfterUploadConfirmed": true,
@@ -10,10 +10,25 @@
     "width": 1080,
     "height": 1920,
     "fps": 30,
-    "card": {"x": 17, "y": 135, "w": 1046, "h": 1380},
-    "clip": {"x": 17, "y": 645, "w": 1046, "h": 859},
-    "hook": {"x": 50, "y": 317, "w": 980},
+    "card": {
+      "x": 17,
+      "y": 135,
+      "w": 1046,
+      "h": 1380
+    },
+    "clip": {
+      "x": 17,
+      "y": 645,
+      "w": 1046,
+      "h": 859
+    },
+    "hook": {
+      "x": 50,
+      "y": 317,
+      "w": 980
+    },
     "brandTitle": "SILENT NARRATIVES",
     "brandHandle": "@silentnarrativesYT"
-  }
+  },
+  "geminiFallbackModel": "gemini-3.5-flash-lite"
 }
