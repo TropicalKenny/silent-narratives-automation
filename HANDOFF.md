@@ -564,3 +564,74 @@ Important:
 - do not remove the lightweight review derivative when optimizing upload quality.
 - do not re-add Date.now() cache busting to preview URLs.
 - upload must continue using final.mp4, not preview.mp4.
+
+## Checkpoint — 2026-10-02 badge spacing, dramatic subtitles, and verified A/V sync
+
+Owner feedback:
+- verified badge was too close to / overlapping the end of SILENT NARRATIVES
+- “I love you” audio arrived earlier than the matching visible speech
+- subtitles/motion were too subtle and did not feel sufficiently hand-edited
+- subtitles may be dramatic as long as the result still feels human-made and preserves the Silent Narratives format
+
+Header refinement:
+- title font reduced slightly from 39 to 37
+- verified badge moved right to provide clear breathing room
+- badge now reads as a separate verification mark instead of touching the title
+
+Root cause of the A/V offset:
+- the source clip itself was synchronized
+- Gemini measured source speech at approximately 0.49–1.55s and visible speech at approximately 0.52–1.55s
+- the previous first-frame fix altered the opening picture treatment without applying the same timeline treatment to audio
+- therefore the render, not the source, created the perceived audio lead
+
+Final sync-safe head treatment:
+- keep the first complete composed frame as a short opening hold
+- remove the broken first 0.20s of BOTH the composed video timeline and scene-audio timeline together
+- replace that interval with:
+  - the fully composed visual hold
+  - equal-duration silence
+- resume BOTH picture and scene audio from the same 0.20s source timestamp
+- no spoken dialogue is lost because the verified line starts around 0.49s
+- final duration remains exactly 4.200s
+- final video and audio streams both start at 0.000s and end at 4.200s
+
+Final rendered A/V verification:
+- Gemini 3.5 Flash inspected the rendered review file itself
+- estimated A/V offset: 0.0s
+- classification: aligned
+- sync quality: good
+- the line “Do you know I love you?” was judged synchronized to visible speech
+
+Dramatic subtitle treatment:
+- subtitle timing is now based on verified speech timing metadata instead of dividing the clip into rough halves
+- Job 1 subtitle timings stored in scene_meta:
+  - “DO YOU KNOW” about 0.45–0.94s
+  - “I LOVE YOU?” about 0.93–1.64s
+- first phrase:
+  - white
+  - restrained upward lift
+  - subtle 95→101% scale-in
+  - short fade
+- payoff phrase:
+  - larger
+  - warm coral accent
+  - fast 90→110% overshoot, then settles to 100%
+  - heavier outline/shadow for drama and phone readability
+- the movie shot receives a stronger, timed punch-in starting around the payoff phrase rather than a constant generic zoom
+- this is intentionally editorial/dramatic, not a bouncing template effect
+
+Current visual QA:
+- literal frame 0 is fully composed and contains the scene
+- verified badge no longer crowds the brand title
+- first phrase and payoff subtitle are visually distinct
+- payoff subtitle remains inside the movie window
+- gameplay remains visible outside the card
+- final preview remains NOT uploaded to YouTube
+
+Current render:
+- final.mp4: full upload master
+- preview.mp4: lightweight review derivative
+- duration: 4.200s
+- video/audio aligned by final rendered-file verification
+
+Do not upload until owner approves this specific version.

@@ -65,9 +65,9 @@ function makeOverlay(file,hook) {
     '<rect x="11" y="131" width="1058" height="1374" rx="24" fill="#152022" stroke="#f0f0f0" stroke-width="4"/>'+
     (avatar?'<image x="184" y="175" width="134" height="134" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" xlink:href="'+avatar+'"/>':
       '<circle cx="251" cy="242" r="67" fill="#232d31"/><text x="251" y="254" text-anchor="middle" font-family="DejaVu Sans" font-size="34" font-weight="700" fill="#ffffff">SN</text>')+
-    '<text x="334" y="235" font-family="DejaVu Sans" font-size="39" font-weight="700" fill="#ffffff">SILENT NARRATIVES</text>'+
-    '<circle cx="764" cy="220" r="14" fill="#3ea6ff"/>'+
-    '<path d="M756 220 l5 5 l10 -11" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<text x="334" y="235" font-family="DejaVu Sans" font-size="37" font-weight="700" fill="#ffffff">SILENT NARRATIVES</text>'+
+    '<circle cx="812" cy="220" r="14" fill="#3ea6ff"/>'+
+    '<path d="M804 220 l5 5 l10 -11" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'+
     '<text x="329" y="280" font-family="DejaVu Sans" font-size="34" fill="#f0f0f0">@silentnarrativesYT</text>'+
     '<text x="540" y="'+startY+'" text-anchor="middle" font-family="DejaVu Sans" font-size="'+fontSize+'" font-weight="700" fill="#f4f4f4">'+tspans+'</text>'+
   '</svg>';
@@ -84,31 +84,48 @@ function makeClipMask(file) {
 function assEscape(s='') {
   return String(s).replace(/\\/g,'\\\\').replace(/{/g,'\\{').replace(/}/g,'\\}').replace(/\n/g,' ');
 }
-function makeAss(file,subs,duration) {
+function makeAss(file,subs,duration,timings=[]) {
   const arr=(Array.isArray(subs)?subs:[subs]).map(x=>String(x||'').trim()).filter(Boolean).slice(0,2);
   const fmt=t=>{
     const h=Math.floor(t/3600),m=Math.floor((t%3600)/60),sec=(t%60).toFixed(2).padStart(5,'0');
     return h+':'+String(m).padStart(2,'0')+':'+sec;
   };
-  const windows=arr.length===1
-    ? [[Math.min(0.35,duration*0.08),Math.max(0.7,duration-0.18)]]
-    : [[Math.min(0.35,duration*0.08),Math.min(duration*0.48,duration-0.35)],
-       [Math.min(duration*0.50,duration-0.30),Math.max(duration*0.52,duration-0.12)]];
-  const events=arr.map((text,i)=>{
-    const [start,end]=windows[i];
-    const safe=assEscape(text);
-    // 96→100% micro-pop + short fade feels edited, not template-bouncy.
-    const styled='{\\an2\\pos(540,1405)\\fad(85,110)\\fscx96\\fscy96\\t(0,140,\\fscx100\\fscy100)}'+safe;
-    return 'Dialogue: 0,'+fmt(start)+','+fmt(Math.max(start+0.35,end))+',Dialogue,,0,0,0,,'+styled;
-  }).join('\n');
+
+  const defaultTimes=arr.length===1
+    ? [{start:Math.min(0.48,duration*0.12),end:Math.min(duration-0.08,1.60)}]
+    : [
+        {start:0.45,end:0.95},
+        {start:0.93,end:Math.min(duration-0.08,1.68)}
+      ];
+  const times=arr.map((_,i)=>({
+    start:Number(timings?.[i]?.start ?? defaultTimes[i]?.start ?? 0.45),
+    end:Number(timings?.[i]?.end ?? defaultTimes[i]?.end ?? Math.min(duration-0.08,1.60))
+  }));
+
+  const events=[];
+  arr.forEach((text,i)=>{
+    const t=times[i];
+    const safe=assEscape(text.toUpperCase());
+    if(i===0){
+      // Quiet setup: short lift and gentle scale-in.
+      const styled='{\\an2\\move(540,1424,540,1404,0,150)\\fad(55,70)\\fscx95\\fscy95\\t(0,145,\\fscx101\\fscy101)}'+safe;
+      events.push('Dialogue: 0,'+fmt(t.start)+','+fmt(Math.max(t.start+0.28,t.end))+',Setup,,0,0,0,,'+styled);
+    }else{
+      // Payoff: larger, warm accent, quick overshoot then settle.
+      const styled='{\\an2\\pos(540,1400)\\fad(45,90)\\fscx90\\fscy90\\t(0,90,\\fscx110\\fscy110)\\t(90,190,\\fscx100\\fscy100)}'+safe;
+      events.push('Dialogue: 1,'+fmt(t.start)+','+fmt(Math.max(t.start+0.35,t.end))+',Impact,,0,0,0,,'+styled);
+    }
+  });
+
   const ass='[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n'+
     '[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'+
-    'Style: Dialogue,DejaVu Sans,42,&H00FFFFFF,&H000000FF,&H00101010,&H78000000,-1,0,0,0,100,100,0,0,1,4.2,1.1,2,82,82,0,1\n\n'+
-    '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'+events+'\n';
+    'Style: Setup,DejaVu Sans,43,&H00FFFFFF,&H000000FF,&H00101010,&H76000000,-1,0,0,0,100,100,0,0,1,4.2,1.0,2,82,82,0,1\n'+
+    'Style: Impact,DejaVu Sans,57,&H006B6BFF,&H000000FF,&H00101010,&H78000000,-1,0,0,0,100,100,0,0,1,5.0,1.4,2,72,72,0,1\n\n'+
+    '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'+events.join('\n')+'\n';
   fs.writeFileSync(file,ass);
 }
 
-export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
+export function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[]}) {
   if(!sceneFile || !fs.existsSync(sceneFile)) throw new Error('Scene video file is missing.');
   const dir=jobDir(jobId);
   const overlaySvg=path.join(dir,'overlay.svg');
@@ -125,7 +142,7 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
 
   makeOverlay(overlaySvg,hook);
   makeClipMask(maskSvg);
-  makeAss(assFile,subtitles,duration);
+  makeAss(assFile,subtitles,duration,subtitleTimings);
   run('/usr/bin/ffmpeg',['-y','-i',overlaySvg,'-frames:v','1',overlayPng]);
   run('/usr/bin/ffmpeg',['-y','-i',maskSvg,'-frames:v','1',maskPng]);
 
@@ -138,12 +155,12 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
   const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
   const filter=
     '[0:v]trim=duration='+d+',setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=5:5:0.25:5:5:0.0,setsar=1[bg];'+
-    '[1:v]setpts=PTS-STARTPTS-0.05/TB,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+','+
+    '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+','+
       'scale=1530:860:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:859,'+
-      "zoompan=z='min(1.032,1+on*0.00025)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1044x859:fps=30,"+
+      "zoompan=z='if(lt(on,28),1+on*0.00014,min(1.060,1.004+(on-28)*0.00085))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-if(gte(on,28),6,0)':d=1:s=1044x859:fps=30,"+
       'format=rgba[cliprgb];'+
-    '[3:v]scale=1044:859,format=gray[mask];[cliprgb][mask]alphamerge[clip];'+
-    '[2:v]fade=t=in:st=0:d=0.16,format=rgba[cardfx];'+
+    '[3:v]setpts=PTS-STARTPTS,scale=1044:859,format=gray[mask];[cliprgb][mask]alphamerge[clip];'+
+    '[2:v]setpts=PTS-STARTPTS,format=rgba[cardfx];'+
     '[bg][cardfx]overlay=0:0[card];[card][clip]overlay=18:644[comp];'+
     "[comp]ass='"+assEsc+"'[outv]";
 
@@ -154,21 +171,29 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[]}) {
     '-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',composite);
   run('/usr/bin/ffmpeg',args);
 
+  // The first ~0.20s of the layered composite is not fully populated by FFmpeg framesync.
+  // Replace that interval with the first complete composed frame AND the same-duration silence,
+  // then continue both video and audio from the same 0.20s source timestamp. This preserves A/V sync.
   const hold=Math.min(0.20,Math.max(0.10,d*0.08));
   run('/usr/bin/ffmpeg',[
     '-y','-ss',String(hold),'-i',composite,'-frames:v','1',openingFrame
   ]);
-  const holdFilter=
-    '[0:v]trim=duration='+hold+',setpts=PTS-STARTPTS,scale=1080:1920,setsar=1[hold];'+
-    '[1:v]trim=start='+hold+':duration='+Math.max(0.1,d-hold)+',setpts=PTS-STARTPTS[rest];'+
-    '[hold][rest]concat=n=2:v=1:a=0[outv]';
+  const syncedHeadFilter=
+    '[0:v]trim=duration='+hold+',setpts=PTS-STARTPTS,scale=1080:1920,setsar=1[holdv];'+
+    '[1:v]trim=start='+hold+':duration='+Math.max(0.1,d-hold)+',setpts=PTS-STARTPTS[restv];'+
+    '[holdv][restv]concat=n=2:v=1:a=0[outv];'+
+    '[2:a]atrim=duration='+hold+',asetpts=PTS-STARTPTS[holda];'+
+    '[1:a]atrim=start='+hold+':duration='+Math.max(0.1,d-hold)+',asetpts=PTS-STARTPTS[resta];'+
+    '[holda][resta]concat=n=2:v=0:a=1[outa]';
   run('/usr/bin/ffmpeg',[
-    '-y','-loop','1','-framerate','30','-i',openingFrame,'-i',composite,
-    '-filter_complex',holdFilter,
-    '-map','[outv]','-map','1:a?','-t',String(d),'-r','30',
+    '-y','-loop','1','-framerate','30','-i',openingFrame,
+    '-i',composite,
+    '-f','lavfi','-i','anullsrc=r=48000:cl=stereo',
+    '-filter_complex',syncedHeadFilter,
+    '-map','[outv]','-map','[outa]','-t',String(d),'-r','30',
     '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-crf','15',
     '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-    '-c:a','copy','-movflags','+faststart',output
+    '-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',output
   ]);
 
   // Keep the upload master untouched. Generate a much lighter review copy for phone/browser playback.

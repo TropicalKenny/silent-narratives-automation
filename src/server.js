@@ -385,7 +385,12 @@ app.post('/api/jobs/:id/render',(req,res)=>{
     if(!job) throw new Error('Job not found.');
     if(!job.hook) throw new Error('Analyze the source before rendering.');
     run("UPDATE jobs SET status='rendering',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[id]);
-    const rendered=renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job)});
+    let subtitleTimings=[];
+    try{
+      const meta=job.scene_meta?JSON.parse(job.scene_meta):{};
+      subtitleTimings=Array.isArray(meta.subtitle_timings)?meta.subtitle_timings:[];
+    }catch{}
+    const rendered=renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings});
     run("UPDATE jobs SET render_file=?,preview_file=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,rendered.preview||null,id]);
     ok(res,{rendered:true,duration:rendered.duration});
   }catch(e){
