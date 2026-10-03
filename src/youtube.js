@@ -1,15 +1,15 @@
 import fs from 'node:fs';
-import { getSecret, setSecret } from './secrets.js';
+import { getSecret, setSecret, setSecrets } from './secrets.js';
 import { parseTags } from './utils.js';
 
 const apiBase='https://www.googleapis.com/youtube/v3';
 
 async function jsonFetch(url, options={}) {
-  const r=await fetch(url,options);
+  const r=await fetch(url,{...options,signal:options.signal||AbortSignal.timeout(20000)});
   const body=await r.text();
   let data={};
   try { data=body?JSON.parse(body):{}; } catch { data={raw:body}; }
-  if(!r.ok) throw new Error(data?.error?.message || data?.error_description || ('HTTP '+r.status));
+  if(!r.ok){const error=new Error(data?.error?.message||data?.error_description||('YouTube HTTP '+r.status));error.status=r.status;throw error;}
   return {data,headers:r.headers,status:r.status};
 }
 
@@ -55,7 +55,7 @@ export async function popularVideos(channelId,minViews=5000000) {
   })).filter(x=>x.views>=minViews).sort((a,b)=>b.views-a.views);
 }
 
-export function youtubeAuthUrl(baseUrl) {
+export function youtubeAuthUrl(baseUrl,state) {
   const clientId=getSecret('google_client_id');
   if(!clientId) throw new Error('Google OAuth client ID is not configured.');
   const redirect=baseUrl.replace(/\/$/,'')+'/oauth/youtube/callback';
@@ -65,11 +65,12 @@ export function youtubeAuthUrl(baseUrl) {
   u.searchParams.set('response_type','code');
   u.searchParams.set('access_type','offline');
   u.searchParams.set('prompt','consent');
+  if(state)u.searchParams.set('state',state);
   u.searchParams.set('scope','https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly');
   return u.toString();
 }
 
-export async function exchangeYoutubeCode(code,baseUrl) {
+export async function exchangeYoutubeCode(code,baseUrl,expectedChannelId) {
   const clientId=getSecret('google_client_id');
   const clientSecret=getSecret('google_client_secret');
   if(!clientId||!clientSecret) throw new Error('Google OAuth client credentials are incomplete.');
@@ -80,9 +81,9 @@ export async function exchangeYoutubeCode(code,baseUrl) {
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body
   });
-  if(data.refresh_token) setSecret('youtube_refresh_token',data.refresh_token);
-  setSecret('youtube_access_token',data.access_token);
-  setSecret('youtube_access_expiry',String(Date.now()+((data.expires_in||3600)-60)*1000));
+  const channel=await channelIdentity(data.access_token);
+  if(expectedChannelId&&channel.id!==expectedChannelId)throw new Error('This Google account does not own the configured Silent Narratives channel.');
+  setSecrets({...(data.refresh_token?{youtube_refresh_token:data.refresh_token}:{}),youtube_access_token:data.access_token,youtube_access_expiry:String(Date.now()+((data.expires_in||3600)-60)*1000)});
   return true;
 }
 
@@ -107,11 +108,25 @@ async function accessToken() {
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body
   });
-  setSecret('youtube_access_token',data.access_token);
-  setSecret('youtube_access_expiry',String(Date.now()+((data.expires_in||3600)-60)*1000));
+  setSecrets({youtube_access_token:data.access_token,youtube_access_expiry:String(Date.now()+((data.expires_in||3600)-60)*1000)});
   return data.access_token;
 }
 
+
+async function channelIdentity(token) {
+  const u=new URL(apiBase+'/channels');u.searchParams.set('part','id,snippet');u.searchParams.set('mine','true');
+  const {data}=await jsonFetch(u,{headers:{Authorization:'Bearer '+token}});
+  const channel=data.items?.[0];if(!channel)throw new Error('The connected YouTube channel could not be verified.');
+  return {id:channel.id,title:channel.snippet?.title||''};
+}
+export async function publicVideoDetails(videoId) {
+  const key=getSecret('youtube_api_key');if(!key)throw new Error('Configure the YouTube Data API before using a direct source.');
+  const u=new URL(apiBase+'/videos');u.searchParams.set('part','snippet,statistics,contentDetails');u.searchParams.set('id',videoId);u.searchParams.set('key',key);
+  const {data}=await jsonFetch(u);const v=data.items?.[0];if(!v)throw new Error('That public YouTube source could not be read.');
+  const duration=v.contentDetails?.duration||'',match=duration.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/);
+  if(!match||Number(match[1]||0)*3600+Number(match[2]||0)*60+Number(match[3]||0)>180)throw new Error('Use a source no longer than three minutes.');
+  return {videoId:v.id,title:v.snippet?.title||'',views:Number(v.statistics?.viewCount||0),publishedAt:v.snippet?.publishedAt||null,duration};
+}
 
 export async function ownChannelVideos() {
   const token=await accessToken();
@@ -167,47 +182,35 @@ export async function ownChannelVideos() {
   },videos};
 }
 
-export async function uploadVideo({file,title,description,tags,privacy='private',publishAt=null}) {
-  const token=await accessToken();
-  const size=fs.statSync(file).size;
-  const meta={
-    snippet:{title,description,tags:parseTags(tags),categoryId:'1'},
-    status:{
-      privacyStatus:publishAt?'private':privacy,
-      selfDeclaredMadeForKids:false,
-      ...(publishAt?{publishAt}: {})
-    }
-  };
-
-  const init=await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',{
-    method:'POST',
-    headers:{
-      Authorization:'Bearer '+token,
-      'Content-Type':'application/json; charset=UTF-8',
-      'X-Upload-Content-Type':'video/mp4',
-      'X-Upload-Content-Length':String(size)
-    },
-    body:JSON.stringify(meta)
-  });
-  if(!init.ok) throw new Error('YouTube upload session failed: '+await init.text());
-  const location=init.headers.get('location');
-  if(!location) throw new Error('YouTube did not return an upload session URL.');
-
-  const bytes=fs.readFileSync(file);
-  const put=await fetch(location,{
-    method:'PUT',
-    headers:{
-      Authorization:'Bearer '+token,
-      'Content-Type':'video/mp4',
-      'Content-Length':String(size)
-    },
-    body:bytes
-  });
-  const raw=await put.text();
-  let data={};
-  try { data=JSON.parse(raw); } catch {}
-  if(!put.ok || !data.id) throw new Error(data?.error?.message || raw || 'YouTube upload failed.');
-  return {videoId:data.id,url:'https://youtu.be/'+data.id,status:put.status,youtubeStatus:data.status||null};
+export async function uploadVideo({file,title,description,tags,privacy='private',publishAt=null,expectedChannelId,resumeSession=null,onSession=()=>{},onVideoConfirmed=()=>{}}) {
+  const token=await accessToken(),size=fs.statSync(file).size;
+  if(!expectedChannelId)throw new Error('Sync the intended YouTube channel before uploading.');
+  const channel=await channelIdentity(token);
+  if(channel.id!==expectedChannelId)throw new Error('The connected Google account does not match Silent Narratives.');
+  const auth={Authorization:'Bearer '+token};
+  let location=resumeSession,offset=0;
+  function confirmed(data,status){
+    if(!data?.id)throw new Error('YouTube did not confirm a video ID. Keep this upload session for reconciliation.');
+    const result={videoId:data.id,url:'https://youtu.be/'+data.id,status,youtubeStatus:data.status||null};onVideoConfirmed(result);return result;
+  }
+  if(location){
+    const u=new URL(location);if(u.protocol!=='https:'||u.hostname!=='www.googleapis.com')throw new Error('The saved upload session is invalid.');
+    const response=await fetch(location,{method:'PUT',headers:{...auth,'Content-Length':'0','Content-Range':'bytes */'+size},signal:AbortSignal.timeout(20000)});
+    if(response.status===200||response.status===201)return confirmed(await response.json(),response.status);
+    if(response.status!==308)throw new Error('The previous upload needs reconciliation (YouTube HTTP '+response.status+'). A new video was not created.');
+    const range=response.headers.get('range'),match=range?.match(/bytes=0-(\d+)/);offset=match?Number(match[1])+1:0;
+    if(offset>=size)throw new Error('YouTube has all bytes but has not returned the video ID. Verify the existing upload before retrying.');
+  }else{
+    const metadata={snippet:{title,description,tags:parseTags(tags),categoryId:'1'},status:{privacyStatus:publishAt?'private':privacy,selfDeclaredMadeForKids:false,...(publishAt?{publishAt}:{})}};
+    const response=await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',{method:'POST',headers:{...auth,'Content-Type':'application/json; charset=UTF-8','X-Upload-Content-Type':'video/mp4','X-Upload-Content-Length':String(size)},body:JSON.stringify(metadata),signal:AbortSignal.timeout(20000)});
+    if(!response.ok)throw new Error('YouTube could not start the upload (HTTP '+response.status+').');
+    location=response.headers.get('location');if(!location)throw new Error('YouTube did not return an upload session.');
+    onSession(location);
+  }
+  const response=await fetch(location,{method:'PUT',headers:{...auth,'Content-Type':'video/mp4','Content-Length':String(size-offset),'Content-Range':'bytes '+offset+'-'+(size-1)+'/'+size},body:fs.createReadStream(file,{start:offset}),duplex:'half',signal:AbortSignal.timeout(240000)});
+  const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{}
+  if(!response.ok)throw new Error(data?.error?.message||('YouTube upload was interrupted (HTTP '+response.status+'). The existing session is retained.'));
+  return confirmed(data,response.status);
 }
 
 
@@ -224,7 +227,8 @@ export async function videoStatus(videoId) {
     title:v.snippet?.title||'',
     privacy:v.status?.privacyStatus||null,
     publishAt:v.status?.publishAt||null,
-    uploadStatus:v.status?.uploadStatus||null
+    uploadStatus:v.status?.uploadStatus||null,
+    failureReason:v.status?.failureReason||v.status?.rejectionReason||null
   };
 }
 
@@ -242,8 +246,8 @@ export async function videoMetrics(videoId) {
     title:v.snippet?.title||'',
     publishedAt:v.snippet?.publishedAt||null,
     privacy:v.status?.privacyStatus||null,
-    views:Number(v.statistics?.viewCount||0),
-    likes:Number(v.statistics?.likeCount||0),
-    comments:Number(v.statistics?.commentCount||0)
+    views:v.statistics?.viewCount==null?null:Number(v.statistics.viewCount),
+    likes:v.statistics?.likeCount==null?null:Number(v.statistics.likeCount),
+    comments:v.statistics?.commentCount==null?null:Number(v.statistics.commentCount)
   };
 }

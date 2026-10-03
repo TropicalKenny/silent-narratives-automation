@@ -1,0 +1,13 @@
+// Isolated staging data only. Never run this against production.
+import fs from 'node:fs';
+import path from 'node:path';
+if(!path.resolve('.').endsWith('/stage'))throw new Error('Fixtures may run only inside the isolated stage directory.');
+const {run,setSetting}=await import('../src/db.js');
+for(const table of ['job_events','performance_snapshots','jobs','candidates','competitors','channel_history'])run('DELETE FROM '+table);
+for(const [key,value] of Object.entries({batch_active_date:'',production_mode:'manual_batch',publishing_slots:'["13:00","15:00","22:00"]',own_channel_title:'Silent Narratives · Test',own_channel_subscribers:'57',own_channel_id:'UCfixture',history_last_sync:new Date().toISOString(),public_base_url:''}))setSetting(key,value);
+run("INSERT INTO competitors(id,handle,name,channel_id) VALUES(1,'@fixture','Test source channel','UCfixture')");
+for(let id=1;id<=8;id++)run('INSERT INTO candidates(id,video_id,competitor_id,title,url,views,status,screened_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)',[id,'fixture'+String(id).padStart(4,'0'),1,['A camera move that made this action scene possible','The costume detail hidden in a familiar movie','A scene changed after the actor suggested one small detail'][id%3],'https://www.youtube.com/shorts/abcdefghijk',5000000+id*1000000,'new']);
+const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Lagos',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+for(const [id,status,title,slot,time,yt] of [[1,'published','The scene where the practical effect paid off',today,'13:00','abcdefghijk'],[2,'scheduled','A future scheduled story', '2050-01-01','15:00','zyxwvutsrqp'],[3,'rejected','An unsupported improvisation claim',null,null,null],[4,'analyzed','An alternate ending that needs independent verification',null,null,null]])run('INSERT INTO jobs(id,status,source_url,hook,yt_title,description,tags,subtitle_text,slot_date,slot_time,scheduled_publish_at,youtube_video_id,youtube_url,upload_confirmed_at,deleted_at,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[id,status,'https://www.youtube.com/shorts/abcdefghijk','In this movie, the alternate ending changes the meaning of the final scene.',title,'Fixture package for isolated UI checks.','film,scene','["THE FINAL SCENE"]',slot,time,slot?slot+'T'+time+':00+01:00':null,yt,yt?'https://youtu.be/'+yt:null,yt?'2026-10-02 12:00:00':null,yt?'2026-10-02 12:00:01':null,status==='rejected'?'Independent sources did not support the claim.':null]);
+run("INSERT INTO channel_history(video_id,title,views,privacy,published_at) VALUES('abcdefghijk','The scene where the practical effect paid off',12500,'public','2026-10-03T12:00:00Z')");
+console.log('Isolated UI fixture seeded. No production credentials or jobs were copied.');

@@ -11,3 +11,6 @@ logs/*
 *.log
 .DS_Store
 .runtime-tools/
+backups/
+__pycache__/
+*.pyc

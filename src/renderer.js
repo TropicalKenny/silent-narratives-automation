@@ -1,12 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { jobDir } from './utils.js';
 
-function run(bin,args) {
-  const r=spawnSync(bin,args,{encoding:'utf8',maxBuffer:20*1024*1024});
-  if(r.status!==0) throw new Error((r.stderr||r.stdout||bin+' failed').slice(-5000));
-  return r.stdout;
+async function run(bin,args) {
+  if(bin.endsWith('/ffmpeg'))args=['-threads','2','-filter_threads','1','-filter_complex_threads','1',...args];
+  return new Promise((resolve,reject)=>{
+    const child=spawn(bin,args,{stdio:['ignore','pipe','pipe']});
+    let output='',errors='';
+    const timer=setTimeout(()=>{child.kill('SIGKILL');reject(new Error('Media processing exceeded the ten-minute limit.'));},600000);
+    child.stdout.on('data',chunk=>{output=(output+chunk).slice(-200000);});
+    child.stderr.on('data',chunk=>{errors=(errors+chunk).slice(-10000);});
+    child.on('error',error=>{clearTimeout(timer);reject(error);});
+    child.on('close',code=>{clearTimeout(timer);if(code!==0)reject(new Error((errors||output||bin+' failed').slice(-5000)));else resolve(output);});
+  });
 }
 function xml(s='') {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -20,31 +27,18 @@ function wrap(text,max=56) {
     else line=next;
   }
   if(line) lines.push(line);
-  return lines.slice(0,7);
+  if(lines.length>7)throw new Error('The on-screen hook is too long for the approved card. Shorten it before rendering.');
+  return lines;
 }
-function probeDuration(file) {
-  try {
-    const out=run('/usr/bin/ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',file]);
-    return Number(out.trim())||8;
-  } catch { return 8; }
-}
-function probeMedia(file) {
-  try {
-    const out=run('/usr/bin/ffprobe',[
-      '-v','error','-show_entries','stream=index,codec_type,start_time,duration,r_frame_rate',
-      '-show_entries','format=duration','-of','json',file
-    ]);
-    const data=JSON.parse(out);
-    const video=(data.streams||[]).find(x=>x.codec_type==='video');
-    const audio=(data.streams||[]).find(x=>x.codec_type==='audio');
-    const videoDuration=Number(video?.duration||data.format?.duration||0);
-    const audioDuration=Number(audio?.duration||0);
-    const duration=(audioDuration>0?Math.min(videoDuration||audioDuration,audioDuration):videoDuration)||probeDuration(file);
-    return {videoDuration,audioDuration,duration};
-  } catch {
-    const duration=probeDuration(file);
-    return {videoDuration:duration,audioDuration:0,duration};
-  }
+async function probeMedia(file) {
+  const out=await run('/usr/bin/ffprobe',['-v','error','-show_entries','stream=index,codec_type,start_time,duration,r_frame_rate,width,height','-show_entries','format=duration','-of','json',file]);
+  const data=JSON.parse(out),video=(data.streams||[]).find(x=>x.codec_type==='video'),audio=(data.streams||[]).find(x=>x.codec_type==='audio');
+  if(!video)throw new Error('The scene does not contain a valid video stream.');
+  if(!audio)throw new Error('The scene has no audio. Use a source containing the actual scene audio.');
+  const videoDuration=Number(video.duration||data.format?.duration||0),audioDuration=Number(audio.duration||data.format?.duration||0);
+  const duration=Math.min(videoDuration,audioDuration);
+  if(!Number.isFinite(duration)||duration<0.3||duration>180)throw new Error('Use a valid scene between 0.3 and 180 seconds.');
+  return {videoDuration,audioDuration,duration,width:video.width,height:video.height};
 }
 function avatarDataUri() {
   const avatar=path.resolve('assets/channel-avatar.jpg');
@@ -125,7 +119,7 @@ function makeAss(file,subs,duration,timings=[]) {
   fs.writeFileSync(file,ass);
 }
 
-export function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[]}) {
+export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[]}) {
   if(!sceneFile || !fs.existsSync(sceneFile)) throw new Error('Scene video file is missing.');
   const dir=jobDir(jobId);
   const overlaySvg=path.join(dir,'overlay.svg');
@@ -136,15 +130,15 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[
   const composite=path.join(dir,'composite.mp4');
   const openingFrame=path.join(dir,'opening-frame.png');
   const output=path.join(dir,'final.mp4');
-  const media=probeMedia(sceneFile);
+  const media=await probeMedia(sceneFile);
   const duration=media.duration;
   const d=Number(duration.toFixed(3));
 
   makeOverlay(overlaySvg,hook);
   makeClipMask(maskSvg);
   makeAss(assFile,subtitles,duration,subtitleTimings);
-  run('/usr/bin/ffmpeg',['-y','-i',overlaySvg,'-frames:v','1',overlayPng]);
-  run('/usr/bin/ffmpeg',['-y','-i',maskSvg,'-frames:v','1',maskPng]);
+  await run('/usr/bin/ffmpeg',['-y','-i',overlaySvg,'-frames:v','1',overlayPng]);
+  await run('/usr/bin/ffmpeg',['-y','-i',maskSvg,'-frames:v','1',maskPng]);
 
   const bg=path.resolve('assets/background.mp4');
   const args=['-y'];
@@ -169,16 +163,16 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[
 
   // Final audio comes ONLY from the main scene (input 1). Background audio is never mapped.
   args.push('-filter_complex',filter,'-map','[outv]','-map','1:a?','-t',String(d),'-r','30',
-    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-crf','12',
+    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-threads','2','-crf','12',
     '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-    '-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',composite);
-  run('/usr/bin/ffmpeg',args);
+    '-c:a','aac','-b:a','320k','-ar','48000','-ac','2','-movflags','+faststart',composite);
+  await run('/usr/bin/ffmpeg',args);
 
   // The first ~0.20s of the layered composite is not fully populated by FFmpeg framesync.
   // Replace that interval with the first complete composed frame AND the same-duration silence,
   // then continue both video and audio from the same 0.20s source timestamp. This preserves A/V sync.
   const hold=Math.min(0.20,Math.max(0.10,d*0.08));
-  run('/usr/bin/ffmpeg',[
+  await run('/usr/bin/ffmpeg',[
     '-y','-ss',String(hold),'-i',composite,'-frames:v','1',openingFrame
   ]);
   const syncedHeadFilter=
@@ -188,27 +182,27 @@ export function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[
     '[2:a]atrim=duration='+hold+',asetpts=PTS-STARTPTS[holda];'+
     '[1:a]atrim=start='+hold+':duration='+Math.max(0.1,d-hold)+',asetpts=PTS-STARTPTS[resta];'+
     '[holda][resta]concat=n=2:v=0:a=1[outa]';
-  run('/usr/bin/ffmpeg',[
+  await run('/usr/bin/ffmpeg',[
     '-y','-loop','1','-framerate','30','-i',openingFrame,
     '-i',composite,
     '-f','lavfi','-i','anullsrc=r=48000:cl=stereo',
     '-filter_complex',syncedHeadFilter,
     '-map','[outv]','-map','[outa]','-t',String(d),'-r','30',
-    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-crf','15',
+    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-threads','2','-crf','15',
     '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-    '-c:a','aac','-b:a','320k','-ar','48000','-movflags','+faststart',output
+    '-c:a','aac','-b:a','320k','-ar','48000','-ac','2','-movflags','+faststart',output
   ]);
 
   // Keep the upload master untouched. Generate a much lighter review copy for phone/browser playback.
   const preview=path.join(dir,'preview.mp4');
-  run('/usr/bin/ffmpeg',[
+  await run('/usr/bin/ffmpeg',[
     '-y','-i',output,
     '-vf','scale=720:1280:flags=lanczos',
-    '-c:v','libx264','-profile:v','high','-level','3.1','-preset','veryfast','-crf','23',
+    '-c:v','libx264','-profile:v','high','-level','3.1','-preset','veryfast','-threads','2','-crf','23',
     '-maxrate','2800k','-bufsize','5600k','-pix_fmt','yuv420p',
-    '-c:a','aac','-b:a','128k','-ar','48000',
+    '-c:a','aac','-b:a','128k','-ar','48000','-ac','2',
     '-movflags','+faststart',preview
   ]);
 
-  return {output,preview,duration};
+  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true}};
 }

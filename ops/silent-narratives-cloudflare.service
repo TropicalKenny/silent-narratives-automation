@@ -1,0 +1,22 @@
+[Unit]
+Description=Silent Narratives Cloudflare tunnel
+Requires=docker.service
+After=docker.service silent-narratives-v1.service network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/workspace/silent-narratives-automation
+ExecStart=/usr/bin/python3 -u ops/cloudflare-tunnel.py
+ExecStop=-/usr/bin/docker stop -t 5 silent-narratives-cloudflare
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/workspace/silent-narratives-automation
+[Install]
+WantedBy=multi-user.target

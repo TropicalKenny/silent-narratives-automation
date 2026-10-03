@@ -1,284 +1,107 @@
-const BASE=location.pathname.startsWith('/silent-narratives')?'/silent-narratives':'';
-let STATE=null;
-let SHOW_ALL=false;
-const $=s=>document.querySelector(s);
-
-function esc(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function compact(n){n=Number(n||0);if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(0)+'K';return String(n);}
-function videoId(url=''){try{const u=new URL(url);if(u.pathname.startsWith('/shorts/'))return u.pathname.split('/')[2]||'';if(u.hostname.includes('youtu.be'))return u.pathname.split('/').filter(Boolean)[0]||'';return u.searchParams.get('v')||'';}catch{return'';}}
-function thumb(url=''){const id=videoId(url);return id?'https://i.ytimg.com/vi/'+encodeURIComponent(id)+'/hqdefault.jpg':'';}
-function statusLabel(s='draft'){return String(s).replaceAll('_',' ');}
-function formatSlot(j){
-  if(!j?.slot_date||!j?.slot_time)return '';
-  const [h,m]=String(j.slot_time).split(':').map(Number);
-  const hour=((h+11)%12)+1;
-  const ap=h>=12?'PM':'AM';
-  return j.slot_date+' · '+hour+':'+String(m||0).padStart(2,'0')+' '+ap+' WAT';
+const BASE=location.pathname.replace(/\/$/,'');
+const $=selector=>document.querySelector(selector);
+let STATE=null,CSRF='',BUSY=false,SHOW_ALL=false,REVIEW_ID=null;
+const esc=(value='')=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const compact=n=>n==null?'Unavailable':new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
+const label=s=>String(s||'draft').replaceAll('_',' ');
+const tone=s=>s==='rejected'||/failed|interrupted|pending/.test(s)?'warn':['scheduled','uploaded','published','rendered'].includes(s)?'ok':'';
+function thumb(url){try{const u=new URL(url),id=u.pathname.startsWith('/shorts/')?u.pathname.split('/')[2]:u.hostname==='youtu.be'?u.pathname.slice(1):u.searchParams.get('v');return /^[\w-]{11}$/.test(id)?'https://i.ytimg.com/vi/'+id+'/hqdefault.jpg':'';}catch{return '';}}
+function safeLink(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:'#';}catch{return '#';}}
+function slotLabel(time){const [h,m]=String(time).split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+' '+(h<12?'AM':'PM');}
+function formatSlot(job){return job.slot_time?job.slot_date+' · '+slotLabel(job.slot_time)+' WAT':'No slot assigned';}
+function button(action,text,id='',secondary=false,disabled=false){return '<button type="button" data-action="'+action+'"'+(id?' data-id="'+id+'"':'')+' class="'+(secondary?'secondary-btn':'primary-btn')+'"'+(disabled?' disabled':'')+'>'+esc(text)+'</button>';}
+function showMessage(message,error=false){$('#noticeText').textContent=message;$('#notice').hidden=false;$('#notice').classList.toggle('error',error);const toast=$('#toast');toast.textContent=message;toast.className='toast show'+(error?' error':'');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>toast.className='toast',5000);if(error&&$('#reviewDialog').open){$('#reviewError').hidden=false;$('#reviewError').textContent=message;}}
+async function api(url,{method='GET',body,...options}={}){
+ const headers={...(options.headers||{})};if(method!=='GET'){headers['X-CSRF-Token']=CSRF;headers.Prefer='respond-async';if(body instanceof Blob)headers['Content-Type']='application/octet-stream';else if(body&&!(body instanceof FormData)){headers['Content-Type']='application/json';body=JSON.stringify(body);}}
+ const response=await fetch(BASE+url,{...options,method,body,headers,credentials:'same-origin'});const result=await response.json().catch(()=>({}));if(!response.ok||result.ok===false)throw new Error(result.error||'Request failed ('+response.status+'). Refresh and try again.');
+ if(result.accepted&&result.taskId){for(;;){await new Promise(resolve=>setTimeout(resolve,1500));const progress=await api('/api/tasks/'+result.taskId);if(progress.state==='failed')throw new Error(progress.result?.error||'Operation failed. Check the job before retrying.');if(progress.state==='done')return progress.result;}}
+ return result;
 }
-function statusTone(s=''){return ['rendered','uploaded','scheduled','scene_ready','analyzed'].includes(s)?'ok':s.includes('error')||s.includes('failed')?'bad':['analyzing','rendering','uploading','scheduling'].includes(s)?'warn':'';}
-function toast(msg,error=false){const t=$('#toast');t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(window._toast);window._toast=setTimeout(()=>t.className='toast',3500);}
-async function api(url,opts={}){const r=await fetch(url.startsWith('/')?BASE+url:url,opts);let d={};try{d=await r.json();}catch{}if(!r.ok||d.ok===false)throw new Error(d.error||('Request failed '+r.status));return d;}
-function openSettings(){$('#settingsDialog').showModal();}
-function openSources(){$('#sourcesDialog').showModal();}
-window.openSettings=openSettings;window.openSources=openSources;
-
-async function refresh(){
-  try{
-    STATE=await api('/api/state');
-    $('#health').textContent='Online';$('#healthDot').className='ok';
-    render();
-  }catch(e){
-    $('#health').textContent='Offline';$('#healthDot').className='bad';toast(e.message,true);
-  }
+async function chunkUpload(file,kind,jobId=null){
+ const {transferId,chunkSize}=await api('/api/uploads/start',{method:'POST',body:{kind,jobId,name:file.name,size:file.size}});let offset=0;
+ while(offset<file.size){const chunk=file.slice(offset,Math.min(offset+chunkSize,file.size));let completed=false;
+  for(let attempt=0;attempt<3&&!completed;attempt++)try{const result=await api('/api/uploads/'+transferId,{method:'PUT',headers:{'X-Upload-Offset':String(offset)},body:chunk});offset=result.offset;completed=true;}catch(error){const status=await api('/api/uploads/'+transferId);if(status.offset===offset+chunk.size){offset=status.offset;completed=true;}else if(status.offset!==offset||attempt===2)throw error;}
+  $('#noticeText').textContent='Uploading '+file.name+' · '+Math.round(offset/file.size*100)+'%';
+ }
+ return api('/api/uploads/'+transferId+'/finish',{method:'POST'});
 }
-window.refresh=refresh;
 
-function availableSources(){return(STATE?.candidates||[]).filter(c=>c.status==='new');}
-function activeJobs(){return(STATE?.jobs||[]).filter(j=>!['uploaded','scheduled','scheduled_cleanup_pending'].includes(j.status));}
-function lagosToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:STATE?.settings?.publishingTimezone||'Africa/Lagos',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
-function slotLabel(time=''){const [h,m]=String(time).split(':').map(Number);if(!Number.isFinite(h))return time||'';const ap=h>=12?'PM':'AM';const hh=h%12||12;return hh+':'+String(m||0).padStart(2,'0')+' '+ap;}
-function jobSlotLabel(j){return j?.slot_time?slotLabel(j.slot_time)+' WAT':'';}
-
+function active(){return Boolean(STATE?.settings.batchActiveDate);}
+function canWork(job){return active()&&job.slot_date===STATE.settings.batchActiveDate&&!job.youtube_video_id&&!job.uploadInProgress&&job.status!=='rejected'&&!job.busy&&!BUSY;}
+async function refresh(){try{STATE=await api('/api/state');$('#health').textContent='VPS online';$('#healthDot').className='ok';render();}catch(error){$('#health').textContent='Connection lost';$('#healthDot').className='bad';showMessage(error.message,true);}}
+async function act(message,operation,success){if(BUSY)return;BUSY=true;document.body.classList.add('busy');document.querySelectorAll('button:not([data-action="close"]):not([data-action="dismiss"])').forEach(x=>x.disabled=true);showMessage(message);try{const result=await operation();showMessage(typeof success==='function'?success(result):success||'Saved.');return result;}catch(error){showMessage(error.message,true);return null;}finally{await refresh();BUSY=false;document.querySelectorAll('button').forEach(x=>x.disabled=false);if(STATE)render();if(REVIEW_ID&&$('#reviewDialog').open)openReview(REVIEW_ID,false);document.body.classList.remove('busy');}}
 function render(){
-  renderChannel();
-  renderToday();
-  renderSources();
-  renderJobs();
-  renderMemory();
-  renderSlotLearning();
-  renderIntegrations();
-  renderCompetitors();
-  renderSettings();
+  const channel=STATE.history.channel;$('#channelName').textContent=channel.title;$('#subscriberCount').textContent=compact(channel.subscribers);$('#historyCount').textContent=STATE.history.count;$('#readySourceCount').textContent=STATE.candidates.length;
+  for(const [selector,wrapper] of [['#channelAvatar','.channel-avatar'],['#headerAvatar','.avatar-btn']]){const img=$(selector);if(channel.thumbnail)img.src=channel.thumbnail;$(wrapper).classList.toggle('has-image',Boolean(channel.thumbnail));}
+  if(!$('#batchDate').value){$('#batchDate').value=STATE.settings.batchActiveDate||STATE.settings.today;}
+  renderToday();renderSources();renderJobs();renderMemory();renderLearning();renderConnections();renderCompetitors();
 }
-
-function setAvatar(url){
-  for(const [wrap,imgSel,initialSel] of [
-    ['.channel-avatar','#channelAvatar','#channelInitials'],
-    ['.avatar-btn','#headerAvatar','#headerInitials']
-  ]){
-    const w=$(wrap),img=$(imgSel);
-    if(url){img.src=url;w.classList.add('has-image');}
-    else w.classList.remove('has-image');
-  }
-}
-
-function renderChannel(){
-  const ch=STATE.history?.channel||{};
-  $('#channelName').textContent=(ch.title||'Silent Narratives').trim();
-  $('#subscriberCount').textContent=compact(ch.subscribers||0);
-  $('#historyCount').textContent=STATE.history?.count||0;
-  $('#readySourceCount').textContent=availableSources().length;
-  setAvatar(ch.thumbnail||'');
-}
-
-function nextAction(j){
-  if(!j.hook)return {label:'Generate package',fn:'analyzeJob('+j.id+')'};
-  if(!j.scene_file)return {label:'Add scene',file:true,id:j.id};
-  if(j.status!=='rendered'&&j.status!=='uploaded')return {label:'Render Short',fn:'renderJob('+j.id+')'};
-  if(j.status==='rendered')return {label:'Review · '+(jobSlotLabel(j)||'ready'),fn:"document.getElementById('job-"+j.id+"').scrollIntoView({behavior:'smooth'})"};
-  return {label:'Uploaded',fn:''};
-}
-
 function renderToday(){
-  const today=lagosToday();
-  const slots=STATE?.settings?.publishingSlots||['13:00','15:00','22:00'];
-  const todaysJobs=(STATE?.jobs||[]).filter(j=>j.slot_date===today && !['uploaded','scheduled','scheduled_cleanup_pending'].includes(j.status));
-  const batchDate=STATE?.settings?.batchActiveDate||'';
-  $('#todayProgress').textContent=batchDate ? (todaysJobs.length+' of 3 in production') : 'Paused · waiting for start';
-  const sources=availableSources();
-  const cards=[];
-  for(let i=0;i<slots.length;i++){
-    const slot=slots[i];
-    const j=todaysJobs.find(x=>x.slot_time===slot);
-    const slotName=slotLabel(slot)+' WAT';
-    if(j){
-      const a=nextAction(j);
-      let action='';
-      if(a.file){
-        action='<label class="file-action-btn">Add scene<input type="file" accept="video/*" onchange="uploadScene('+j.id+',this)"></label>';
-      }else{
-        action='<button onclick="'+a.fn+'">'+esc(a.label)+'</button>';
-      }
-      cards.push('<article class="production-card">'+
-        '<span class="production-number">VIDEO '+(i+1)+' · '+esc(slotName)+'</span>'+
-        '<h3>'+esc(j.yt_title||j.hook||('Production job #'+j.id))+'</h3>'+
-        '<p>'+esc(j.hook?'Assigned to today’s '+slotName+' publishing slot.':'Source selected for '+slotName+'. Generate the Gemini package.')+'</p>'+
-        '<div class="production-state '+statusTone(j.status)+'"><i></i>'+esc(statusLabel(j.status))+'</div>'+
-        action+'</article>');
-    }else{
-      cards.push('<article class="production-card">'+
-        '<span class="production-number">VIDEO '+(i+1)+' · '+esc(slotName)+'</span>'+
-        '<h3>Open production slot</h3>'+
-        '<p>'+(sources.length?sources.length+' screened recommendations are available.':'Run a source scan to find the next story.')+'</p>'+
-        '<div class="production-state"><i></i>open</div>'+
-        '<button class="secondary" onclick="'+(sources.length?"document.querySelector('.source-card')?.scrollIntoView({behavior:'smooth',block:'center'})":"discover()")+'">'+(sources.length?'Choose source':'Scan sources')+'</button>'+
-        '</article>');
-    }
-  }
-  $('#todayProduction').innerHTML=cards.join('');
+  const date=$('#batchDate').value,isCurrent=date===STATE.settings.batchActiveDate,rows=STATE.jobs.filter(job=>job.slot_date===date&&job.status!=='rejected');
+  $('#todayProgress').textContent=active()?'Active · '+STATE.settings.batchActiveDate:'Production paused';$('#todayProgress').classList.toggle('ok',active());
+  $('#batchDescription').textContent=rows.length+' of 3 slots reserved for '+date+'. All times are WAT (UTC+1).';
+  const pastStart=STATE.settings.publishingSlots.some(time=>Date.parse(date+'T'+time+':00+01:00')<=Date.now()+300000);$('#startBatchBtn').disabled=BUSY||active()||pastStart;$('#startBatchBtn').textContent=pastStart&&!active()?'Choose a future day':'Start this batch';$('#pauseBatchBtn').disabled=BUSY||!active();$('#batchDate').disabled=BUSY;
+  $('#batchNote').textContent=active()?'Choose a source or assign an unfinished job. The batch pauses after three confirmed uploads.':pastStart?'Pick a future publishing day, then start the batch. Videos already scheduled on YouTube will still publish.':'Start a batch to work on new videos. Videos already scheduled on YouTube will still publish.';
+  $('#todayProduction').innerHTML=STATE.settings.publishingSlots.map((time,index)=>{const job=rows.find(x=>x.slot_time===time),past=Date.parse(date+'T'+time+':00+01:00')<=Date.now()+300000;return '<article class="production-card"><span class="production-number">VIDEO '+(index+1)+'<b>'+esc(slotLabel(time))+' WAT</b></span><h3>'+esc(job?.yt_title|| (past?'Slot has passed':'Available slot'))+'</h3><p>'+esc(job?formatSlot(job):'Select a screened story for this publishing time.')+'</p><div class="production-state '+tone(job?.status)+'"><i></i>'+esc(job?label(job.status):past?'Unavailable':isCurrent?'Ready for source':'Batch paused')+'</div>'+(job?job.youtube_url?'<a class="secondary-btn card-link" href="'+esc(safeLink(job.youtube_url))+'" target="_blank" rel="noopener noreferrer">View upload ↗</a>':button('review','Open job',job.id,false,BUSY):button('choose-source','Choose source','',true,BUSY||!isCurrent||past))+'</article>';}).join('');
+  $('#directSourceBtn').disabled=BUSY||!active();
 }
-
-function renderSources(){
-  const all=availableSources();
-  const list=SHOW_ALL?all:all.slice(0,6);
-  const el=$('#sources');
-  if(!all.length){
-    el.className='content-list empty-state';
-    el.innerHTML='No usable sources yet. Scan your competitor channels to find 5M+ Shorts.';
-    $('#sourceMore').innerHTML='';
-    return;
-  }
-  el.className='content-list';
-  el.innerHTML=list.map(c=>{
-    const image=thumb(c.url);
-    return '<article class="source-card">'+
-      '<div class="source-thumb">'+(image?'<img loading="lazy" src="'+image+'" alt="">':'')+'</div>'+
-      '<div class="source-main"><h3>'+esc(c.title||'Untitled source')+'</h3>'+
-      '<p>'+esc(c.competitor_name||c.competitor_handle||'Competitor')+'</p>'+
-      '<div class="source-stats"><span><strong>'+compact(c.views)+'</strong> views</span><span>Passed duplicate check</span></div></div>'+
-      '<div class="source-actions"><button class="use-btn" onclick="startCut('+c.id+')">Use source</button><button class="open-btn" onclick="window.open(\''+esc(c.url)+'\',\'_blank\')">View</button></div>'+
-      '</article>';
-  }).join('');
-  $('#sourceMore').innerHTML=all.length>6?'<button onclick="toggleSources()">'+(SHOW_ALL?'Show less':'Show all '+all.length)+'</button>':'';
-}
-window.toggleSources=()=>{SHOW_ALL=!SHOW_ALL;renderSources();};
-
+function renderSources(){const query=$('#sourceSearch').value.toLowerCase(),all=STATE.candidates.filter(x=>(x.title+' '+(x.competitor_name||'')).toLowerCase().includes(query)),list=SHOW_ALL?all:all.slice(0,6);$('#sources').className='content-list'+(!list.length?' empty-state':'');$('#sources').innerHTML=list.map(source=>'<article class="source-card"><div class="source-thumb"><img loading="lazy" src="'+thumb(source.url)+'" alt=""></div><div class="source-main"><h3>'+esc(source.title)+'</h3><p>'+esc(source.competitor_name||'Direct source')+'</p><div class="source-stats"><span><strong>'+compact(source.views)+'</strong> views</span><span>Screened for repeats</span></div></div><div class="source-actions">'+button('use-source','Use source',source.id,false,BUSY||!active())+'<a class="open-btn" href="'+esc(safeLink(source.url))+'" target="_blank" rel="noopener noreferrer">View ↗</a></div></article>').join('')||'No screened sources match. Scan sources to check new stories.';$('#sourceMore').innerHTML=all.length>6?button('more-sources',SHOW_ALL?'Show less':'Show all '+all.length,'',true,BUSY):'';$('#sourceNote').textContent=STATE.history.unscreened+' awaiting a check · '+STATE.history.duplicateBlocked+' repeats blocked · '+STATE.history.reviewBlocked+' need duplicate review';}
 function renderJobs(){
-  const jobs=activeJobs();
-  const el=$('#jobs');
-  if(!jobs.length){
-    el.className='content-list empty-state';
-    el.innerHTML='No active jobs yet. Choose a recommended source to begin.';
-    return;
-  }
-  el.className='content-list';
-  el.innerHTML=jobs.map(j=>{
-    const image=thumb(j.source_url);
-    const rendered=j.status==='rendered'&&j.render_file;
-    let preview=image?'<img src="'+image+'" alt="">':'Preview';
-    if(rendered)preview='<video controls playsinline src="'+BASE+'/api/jobs/'+j.id+'/video?v='+encodeURIComponent(j.updated_at||j.id)+'"></video>';
-    let action='';
-    if(!j.hook)action='<button onclick="analyzeJob('+j.id+')">Generate package</button>';
-    else if(!j.scene_file)action='<label class="file-action-btn">Add scene<input type="file" accept="video/*" onchange="uploadScene('+j.id+',this)"></label>';
-    else if(!rendered)action='<button onclick="renderJob('+j.id+')">Render Short</button>';
-    else if(j.scheduled_publish_at)action='<button onclick="scheduleJob('+j.id+')">Approve + schedule '+esc(jobSlotLabel(j))+'</button>';
-    else action='<button onclick="uploadJob('+j.id+')">Approve + upload private</button>';
-
-    const packageBlock=j.hook?'<details class="job-detail"><summary>Gemini package</summary><div class="package-grid">'+
-      '<div class="package-field"><small>HOOK + COMMENTARY</small><p>'+esc(j.hook)+'</p></div>'+
-      '<div class="package-field"><small>TITLE</small><p>'+esc(j.yt_title||'')+'</p></div>'+
-      '<div class="package-field"><small>DESCRIPTION</small><p>'+esc(j.description||'')+'</p></div>'+
-      '<div class="package-field"><small>TAGS</small><p>'+esc(j.tags||'')+'</p></div>'+
-      '</div></details>':'';
-
-    return '<article class="job-card" id="job-'+j.id+'"><div class="job-top">'+
-      '<div class="job-preview">'+preview+'</div>'+
-      '<div class="job-copy"><h3>'+esc(j.yt_title||j.hook||('Production job #'+j.id))+'</h3>'+
-      '<p>'+esc(j.hook||j.source_url||'Source selected')+'</p>'+
-      '<div class="job-status '+statusTone(j.status)+'"><i></i>'+esc(statusLabel(j.status))+(j.slot_time?' · '+esc(formatSlot(j)):'')+'</div></div>'+
-      '<div class="job-action">'+action+'</div></div>'+packageBlock+'</article>';
-  }).join('');
+  const archive=STATE.jobs.filter(x=>x.upload_confirmed_at||x.status==='rejected'),jobs=STATE.jobs.filter(x=>!x.upload_confirmed_at&&x.status!=='rejected');
+  $('#jobs').className='content-list'+(!jobs.length?' empty-state':'');$('#jobs').innerHTML=jobs.map(job=>'<article class="job-card"><div class="job-top"><div class="job-preview"><img src="'+thumb(job.source_url)+'" alt=""></div><div class="job-copy"><h3>'+esc(job.yt_title||'Production job #'+job.id)+'</h3><p>'+esc(job.hook||'Generate the package, then verify the factual claim.')+'</p><div class="job-status '+tone(job.status)+'"><i></i>'+esc(label(job.status))+'</div><p class="slot-description">'+esc(formatSlot(job))+'</p>'+(job.error?'<p class="inline-error">'+esc(job.error)+'</p>':'')+'</div><div class="job-action">'+button('review',job.busy?'Working…':'Open job',job.id,false,BUSY)+'</div></div></article>').join('')||'Your queue is clear. Start a batch and choose a story.';
+  $('#archiveCount').textContent='('+archive.length+')';$('#archiveJobs').innerHTML=archive.map(job=>'<article class="archive-row"><div><strong>'+esc(job.yt_title||'Job #'+job.id)+'</strong><p>'+esc(label(job.status)+' · '+formatSlot(job))+'</p>'+(job.status==='rejected'?'<p>'+esc(job.error||'Rejected during verification')+'</p>':'')+'</div>'+(job.youtube_url?'<a class="secondary-btn" target="_blank" rel="noopener noreferrer" href="'+esc(safeLink(job.youtube_url))+'">View ↗</a>':'')+'</article>').join('');
 }
-
-
-function renderSlotLearning(){
-  const el=$('#slotLearning');
-  if(!el)return;
-  const perf=STATE.performance||{};
-  const checkpoints=Array.isArray(perf.checkpoints)?perf.checkpoints:[];
-  const slots=STATE.settings?.publishingSlots||['13:00','15:00','22:00'];
-  const order={'1h':1,'6h':2,'24h':3,'48h':4,'7d':5};
-
-  el.innerHTML=slots.map(slot=>{
-    const rows=checkpoints.filter(r=>r.slot_time===slot);
-    const captured=rows.filter(r=>r.captured_at)
-      .sort((a,b)=>(order[b.checkpoint]||0)-(order[a.checkpoint]||0))[0];
-    const pending=rows.filter(r=>!r.captured_at)
-      .sort((a,b)=>(order[a.checkpoint]||99)-(order[b.checkpoint]||99))[0];
-
-    let value='Collecting data';
-    if(captured){
-      value=captured.checkpoint+' · '+compact(captured.views||0)+' views';
-    }else if(pending){
-      value=pending.checkpoint+' checkpoint pending';
-    }
-    return '<div class="history-row"><strong>'+esc(slotLabel(slot)+' WAT')+'</strong><span>'+esc(value)+'</span></div>';
-  }).join('');
+function renderMemory(){const history=STATE.history;$('#memoryCount').textContent=history.count;$('#memorySync').textContent=history.lastSync?'Last synced '+new Date(history.lastSync).toLocaleString()+'. Includes private and scheduled uploads.':'Sync the channel to update the upload index.';$('#recentHistory').innerHTML=history.recent.slice(0,4).map(video=>'<div class="history-row"><strong>'+esc(video.title)+'</strong><span>'+esc(video.privacy||'Unknown')+' · '+compact(video.views)+' views</span></div>').join('');}
+function renderLearning(){const checkpoint=$('#checkpoint').value;$('#slotLearning').innerHTML=STATE.settings.publishingSlots.map(time=>{const row=STATE.performance.slots.find(x=>x.slot_time===time&&x.checkpoint===checkpoint);return '<article class="learning-card"><span>'+esc(slotLabel(time))+' WAT</span><strong>'+ (row?.samples?compact(row.median_views)+' views':'Awaiting data')+'</strong><small>'+(row?.samples?row.samples+' public sample'+(row.samples===1?'':'s')+' · median at '+checkpoint:'No on-time public samples at '+checkpoint)+'</small></article>';}).join('');const pending=STATE.performance.checkpoints.filter(x=>x.checkpoint===checkpoint&&!x.captured_at).length,late=STATE.performance.checkpoints.filter(x=>x.checkpoint===checkpoint&&x.lateMinutes>30).length;$('#learningNote').textContent=pending+' checkpoints pending · '+late+' late captures excluded. Small samples cannot establish a winning slot.';}
+function renderConnections(){const map=[['Gemini',STATE.integrations.gemini],['YouTube data',STATE.integrations.youtubeData],['Google OAuth',STATE.integrations.googleOAuth],['Channel upload',STATE.integrations.youtubeConnected],['Gameplay',STATE.assets.background]];$('#integrations').innerHTML=map.map(([name,ready])=>'<span class="integration-chip '+(ready?'ok':'bad')+'"><i></i>'+name+' · '+(ready?'Configured':'Missing')+'</span>').join('');$('#backgroundStatus').textContent=STATE.assets.background?'· Ready':'· Missing';for(const id of ['discoverBtn','syncHistoryBtn','collectPerformanceBtn'])$('#'+id).disabled=BUSY;}
+function renderCompetitors(){$('#competitors').innerHTML=STATE.competitors.map(channel=>'<div class="competitor-item"><div><strong>'+esc(channel.name||channel.handle)+'</strong><span>'+esc(channel.handle)+'</span></div>'+button('remove-competitor','Remove',channel.id,true,BUSY)+'</div>').join('')||'<p class="helper">Add a competitor to scan.</p>';}
+function openSettings(){const form=$('#settingsForm');form.elements.minViews.value=STATE.settings.minViews;form.elements.privacy.value=STATE.settings.privacy;STATE.settings.publishingSlots.forEach((time,index)=>{form.elements['slot'+(index+1)].value=time;form.elements['slot'+(index+1)].disabled=active();});$('#settingsDialog').showModal();}
+function openReview(id,show=true){
+  const job=STATE.jobs.find(x=>x.id===Number(id));if(!job)return;REVIEW_ID=job.id;const form=$('#reviewForm'),can=canWork(job);
+  $('#reviewTitle').textContent=job.yt_title||'Production job #'+id;$('#reviewStatus').textContent=label(job.status)+' · '+formatSlot(job);$('#reviewStep').textContent=job.youtube_video_id?'UPLOAD RECOVERY':!job.hook?'GENERATE PACKAGE':!job.facts_verified_at?'VERIFY FACTS':!job.scene_file?'ADD THE MATCHING SCENE':!job.scene_verified_at?'VERIFY SCENE':'REVIEW & PUBLISH';
+  for(const [name,value] of Object.entries({hook:job.hook||'',title:job.yt_title||'',description:job.description||'',tags:job.tags||'',subtitles:job.subtitles.join('\n'),factsEvidence:job.facts_evidence||'',sceneEvidence:job.scene_evidence||''}))form.elements[name].value=value;
+  form.elements.factsVerified.checked=Boolean(job.facts_verified_at);form.elements.sceneVerified.checked=Boolean(job.scene_verified_at);form.querySelectorAll('input,textarea,button').forEach(x=>x.disabled=!can);$('#sceneVerification').hidden=!job.scene_file;
+  const playable=job.render_file&&job.render_fingerprint;$('#reviewPreview').innerHTML=playable?'<video controls playsinline preload="metadata" src="'+BASE+'/api/jobs/'+id+'/video?v='+encodeURIComponent(job.updated_at)+'"></video><a href="'+BASE+'/api/jobs/'+id+'/video?master=1" target="_blank" rel="noopener">Open upload master ↗</a>':'<div class="preview-placeholder"><span>9:16</span><p>'+esc(job.scene_file?'Verify this scene, then render to preview the Short.':'The finished Short will appear here.')+'</p></div>';
+  $('#renderInfo').textContent=job.render_meta?job.render_meta.hookWords+' hook words · '+job.render_meta.duration.toFixed(1)+' seconds · 1080 × 1920 · scene audio only':'';
+  $('#reviewError').hidden=!job.error;$('#reviewError').textContent=job.error||'';
+  let actions='';
+  if(job.youtube_video_id)actions='<p class="helper">An existing video ID is saved. Check that video before retrying; this action cannot create another upload.</p>'+button('reconcile','Verify existing upload',id,false,BUSY);
+  else if(job.uploadInProgress)actions='<p class="helper">The interrupted upload session is saved. Resume it with its original settings.</p>'+button('resume-upload','Resume existing upload',id,false,BUSY||!active());
+  else if(!can)actions='<p class="helper">'+(job.status==='rejected'?'This rejected story cannot continue.':'Start a batch and assign this job to a future slot to continue.')+'</p>'+button('assign-slot','Assign next available slot',id,false,BUSY||!active()||job.busy);
+  else if(!job.hook)actions=button('analyze','Generate package',id);
+  else if(!job.facts_verified_at)actions='<p class="helper">Save the independent fact source and confirmation before adding a scene.</p>';
+  else if(!job.scene_file)actions='<label class="file-action-btn">Add matching scene<input type="file" data-scene-id="'+id+'" accept="video/*"></label>';
+  else if(!job.scene_verified_at)actions='<p class="helper">Record the exact scene and save the verification before rendering.</p>';
+  else if(!playable)actions=button('render','Render Short',id);
+  else actions='<label class="check review-confirm"><input id="reviewed" type="checkbox">I watched the full render and checked the hook, scene, audio and publishing package.</label>'+button('approve-schedule','Approve & schedule '+slotLabel(job.slot_time)+' WAT',id,false,true)+button('render','Render again',id,true);
+  if(can)actions+=button('reject','Reject this story',id,true);
+  $('#reviewActions').innerHTML=actions;
+  if(show)$('#reviewDialog').showModal();
 }
-
-function renderMemory(){
-  const h=STATE.history||{};
-  $('#memoryCount').textContent=h.count||0;
-  const recent=(h.recent||[]).slice(0,4);
-  $('#recentHistory').innerHTML=recent.map(v=>'<div class="history-row"><strong>'+esc(v.title||'Untitled')+'</strong><span>'+compact(v.views)+' views</span></div>').join('');
-  const blocked=h.channel?.duplicateBlocked||0;
-  if(blocked){
-    $('#recentHistory').insertAdjacentHTML('beforeend','<div class="history-row"><strong>Duplicate sources blocked</strong><span>'+blocked+'</span></div>');
-  }
-}
-
-function renderIntegrations(){
-  const i=STATE.integrations;
-  const items=[['Gemini',i.gemini],['YouTube data',i.youtubeData],['Google OAuth',i.googleOAuth],['Channel upload',i.youtubeConnected],['Gameplay',STATE.assets.background]];
-  $('#integrations').innerHTML=items.map(([name,ready])=>'<span class="integration-chip '+(ready?'ok':'bad')+'"><i></i>'+esc(name)+'</span>').join('');
-  $('#backgroundStatus').textContent=STATE.assets.background?'· Ready':'· Missing';
-}
-
-function renderCompetitors(){
-  const el=$('#competitors');
-  if(!STATE.competitors.length){el.innerHTML='<div class="empty-state">No competitor channels added.</div>';return;}
-  el.innerHTML=STATE.competitors.map(c=>'<div class="competitor-item"><div><strong>'+esc(c.name||c.handle)+'</strong><span>'+esc(c.handle||'')+'</span></div><button type="button" onclick="removeCompetitor('+c.id+')">Remove</button></div>').join('');
-}
-function renderSettings(){
-  const f=$('#settingsForm');
-  f.minViews.value=STATE.settings.minViews;
-  f.privacy.value=STATE.settings.privacy;
-  f.publicBaseUrl.value=STATE.settings.publicBaseUrl||'';
-}
-
-window.startCut=async id=>{try{const d=await api('/api/jobs/from-candidate/'+id,{method:'POST'});toast('Production job #'+d.jobId+' created');await refresh();document.getElementById('activeProductionSection').scrollIntoView({behavior:'smooth'});}catch(e){toast(e.message,true);}};
-window.removeCompetitor=async id=>{try{await api('/api/competitors/'+id,{method:'DELETE'});await refresh();}catch(e){toast(e.message,true);}};
-window.analyzeJob=async id=>{try{toast('Gemini analysis started');await api('/api/jobs/'+id+'/analyze',{method:'POST'});toast('Package generated');await refresh();}catch(e){toast(e.message,true);await refresh();}};
-window.uploadScene=async(id,input)=>{try{if(!input.files[0])return;const f=new FormData();f.append('scene',input.files[0]);toast('Uploading scene');await api('/api/jobs/'+id+'/scene',{method:'POST',body:f});toast('Scene ready');await refresh();}catch(e){toast(e.message,true);}};
-window.renderJob=async id=>{try{toast('Rendering on VPS');await api('/api/jobs/'+id+'/render',{method:'POST'});toast('Render ready');await refresh();}catch(e){toast(e.message,true);await refresh();}};
-window.scheduleJob=async id=>{
-  const j=(STATE.jobs||[]).find(x=>x.id===id);
-  const slot=formatSlot(j);
-  if(!confirm('Schedule this approved Short for '+slot+'? It will upload to YouTube as private and YouTube will publish it at the assigned time. Temporary video files will be deleted after YouTube confirms the scheduled upload.'))return;
-  try{
-    toast('Scheduling on YouTube');
-    const d=await api('/api/jobs/'+id+'/schedule',{method:'POST'});
-    toast('Scheduled for '+slot+' · temporary videos deleted');
-    await refresh();
-  }catch(e){toast(e.message,true);await refresh();}
-};
-window.uploadJob=async id=>{if(!confirm('Upload this Short to YouTube as '+STATE.settings.privacy+'? Temporary video files will be deleted after YouTube confirms the upload.'))return;try{toast('Uploading to YouTube');await api('/api/jobs/'+id+'/upload',{method:'POST'});toast('Upload confirmed · temporary videos deleted');await refresh();}catch(e){toast(e.message,true);await refresh();}};
-window.discover=async()=>{const b=$('#discoverBtn');try{b.disabled=true;b.textContent='Scanning…';const d=await api('/api/discover',{method:'POST'});toast(d.found+' new sources found · duplicate check complete');await refresh();}catch(e){toast(e.message,true);}finally{b.disabled=false;b.textContent='Scan sources';}};
-window.syncHistory=async()=>{const b=$('#syncHistoryBtn');try{b.disabled=true;b.textContent='Syncing…';const d=await api('/api/history/sync',{method:'POST'});toast(d.synced+' uploads indexed · '+(d.screening?.duplicates||0)+' repeats blocked');await refresh();}catch(e){toast(e.message,true);}finally{b.disabled=false;b.textContent='Sync channel';}};
-
-$('#competitorForm').addEventListener('submit',async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));await api('/api/competitors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();toast('Competitor added');await refresh();}catch(err){toast(err.message,true);}});
-$('#urlForm').addEventListener('submit',async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/jobs/from-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();$('#sourcesDialog').close();toast('Production job #'+d.jobId+' created');await refresh();}catch(err){toast(err.message,true);}});
-$('#secretsForm').addEventListener('submit',async e=>{e.preventDefault();try{const raw=Object.fromEntries(new FormData(e.target));const body=Object.fromEntries(Object.entries(raw).filter(([,v])=>String(v).trim()));await api('/api/settings/secrets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});e.target.reset();toast('Connections saved');await refresh();}catch(err){toast(err.message,true);}});
-$('#settingsForm').addEventListener('submit',async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});toast('Publishing defaults saved');await refresh();}catch(err){toast(err.message,true);}});
-
-
-$('#collectPerformanceBtn')?.addEventListener('click',async()=>{
-  const b=$('#collectPerformanceBtn');
-  try{
-    b.disabled=true;
-    b.textContent='Refreshing…';
-    await api('/api/performance/collect',{method:'POST'});
-    await refresh();
-    toast('Performance checkpoints refreshed');
-  }catch(e){
-    toast(e.message,true);
-  }finally{
-    b.disabled=false;
-    b.textContent='Refresh metrics';
-  }
+async function saveReview(){const form=$('#reviewForm'),job=STATE.jobs.find(x=>x.id===REVIEW_ID),body={hook:form.elements.hook.value,title:form.elements.title.value,description:form.elements.description.value,tags:form.elements.tags.value,subtitles:form.elements.subtitles.value.split('\n').map(x=>x.trim()).filter(Boolean)};if(form.elements.factsEvidence.value.trim())Object.assign(body,{factsEvidence:form.elements.factsEvidence.value,factsVerified:form.elements.factsVerified.checked});if(job.scene_file&&form.elements.sceneEvidence.value.trim())Object.assign(body,{sceneEvidence:form.elements.sceneEvidence.value,sceneVerified:form.elements.sceneVerified.checked});await api('/api/jobs/'+REVIEW_ID,{method:'PATCH',body});}
+document.addEventListener('click',async event=>{
+  const target=event.target.closest('[data-action]');if(!target||target.disabled)return;const action=target.dataset.action,id=Number(target.dataset.id);
+  if(action==='close'){target.closest('dialog').close();return;}if(action==='dismiss'){$('#notice').hidden=true;return;}if(action==='review'){openReview(id);return;}if(action==='settings'){openSettings();return;}if(action==='sources'){$('#sourcesDialog').showModal();return;}if(action==='refresh'){await refresh();return;}if(action==='choose-source'){$('#sourceSearch').focus();$('#sources').scrollIntoView({block:'center'});return;}if(action==='more-sources'){SHOW_ALL=!SHOW_ALL;renderSources();return;}
+  if(action==='next-day'){$('#batchDate').value=new Date(Date.parse($('#batchDate').value+'T12:00:00Z')+86400000).toISOString().slice(0,10);renderToday();return;}
+  if(action==='start-batch')await act('Starting the daily batch…',()=>api('/api/batch/start',{method:'POST',body:{date:$('#batchDate').value}}),'Daily batch started.');
+  if(action==='pause-batch')await act('Pausing production…',()=>api('/api/batch/stop',{method:'POST'}),'Production paused. Existing YouTube schedules remain active.');
+  if(action==='discover')await act('Scanning and checking stories…',()=>api('/api/discover',{method:'POST'}),result=>result.found+' new sources found. Duplicate screening complete.');
+  if(action==='sync-history')await act('Syncing the live channel…',()=>api('/api/history/sync',{method:'POST'}),result=>result.synced+' uploads indexed.');
+  if(action==='collect-performance')await act('Collecting due checkpoints…',()=>api('/api/performance/collect',{method:'POST'}),result=>result.busy?'Metrics collector is already running.':result.captured+' due checkpoints captured.');
+  if(action==='remove-competitor')await act('Removing competitor…',()=>api('/api/competitors/'+id,{method:'DELETE'}),'Competitor removed.');
+  if(action==='use-source'){const result=await act('Checking this source again…',()=>api('/api/jobs/from-candidate/'+id,{method:'POST'}),'Source assigned to the batch.');if(result)openReview(result.jobId);}
+  if(action==='assign-slot')await act('Assigning a future slot…',()=>api('/api/jobs/'+id+'/slot',{method:'POST',body:{}}),'Slot assigned.');
+  if(action==='analyze')await act('Generating the package…',()=>api('/api/jobs/'+id+'/analyze',{method:'POST'}),'Package generated. Verify its factual claim next.');
+  if(action==='render')await act('Rendering on the VPS…',async()=>{await saveReview();return api('/api/jobs/'+id+'/render',{method:'POST'});},'Render ready for review.');
+  if(action==='approve-schedule')await act('Verifying approval and scheduling on YouTube…',async()=>{await saveReview();await api('/api/jobs/'+id+'/approve',{method:'POST',body:{reviewed:true}});return api('/api/jobs/'+id+'/schedule',{method:'POST'});},'YouTube confirmed the schedule. Temporary media deleted.');
+  if(action==='resume-upload'){const job=STATE.jobs.find(x=>x.id===id);await act('Resuming the saved upload session…',()=>api('/api/jobs/'+id+(job.upload_requested_publish_at?'/schedule':'/upload'),{method:'POST'}),'Existing upload confirmed.');}
+  if(action==='reconcile')await act('Checking the existing YouTube video…',()=>api('/api/jobs/'+id+'/reconcile',{method:'POST'}),'Existing upload verified.');
+  if(action==='reject')await act('Rejecting this story…',()=>api('/api/jobs/'+id+'/reject',{method:'POST',body:{reason:'Rejected during factual or scene review.'}}),'Story rejected and slot released.');
 });
-
-const qs=new URLSearchParams(location.search);
-if(qs.get('background')==='ready')setTimeout(()=>toast('Gameplay background ready'),250);
-if(qs.get('background_error'))setTimeout(()=>toast(qs.get('background_error'),true),250);
-refresh();
+document.addEventListener('change',async event=>{if(event.target.id==='reviewed')$('[data-action="approve-schedule"]').disabled=!event.target.checked||BUSY;if(event.target.dataset.sceneId&&event.target.files[0]){const file=event.target.files[0],jobId=Number(event.target.dataset.sceneId);await act('Uploading the matching scene…',()=>chunkUpload(file,'scene',jobId),'Scene received. Confirm its timestamp and action next.');}});
+$('#batchDate').addEventListener('change',renderToday);$('#sourceSearch').addEventListener('input',renderSources);$('#checkpoint').addEventListener('change',renderLearning);
+$('#reviewForm').addEventListener('submit',event=>{event.preventDefault();act('Saving package and verification…',saveReview,'Saved.');});
+for(const [selector,url,message] of [['#competitorForm','/api/competitors','Competitor added.'],['#urlForm','/api/jobs/from-url','Direct source checked and assigned.'],['#secretsForm','/api/settings/secrets','Connections saved.'],['#settingsForm','/api/settings','Publishing defaults saved.'],['#backgroundForm','/api/assets/background','Gameplay replaced. Unfinished jobs need a new render.']])$(selector).addEventListener('submit',async event=>{event.preventDefault();const form=event.target;let body=selector==='#backgroundForm'?new FormData(form):Object.fromEntries(new FormData(form));if(selector==='#settingsForm')body.publishingSlots=active()?undefined:[body.slot1,body.slot2,body.slot3];const result=await act('Saving…',()=>selector==='#backgroundForm'?chunkUpload(form.elements.background.files[0],'background'):api(url,{method:'POST',body}),message);if(result&&['#competitorForm','#secretsForm','#urlForm','#backgroundForm'].includes(selector))form.reset();if(result?.jobId){$('#sourcesDialog').close();openReview(result.jobId);}});
+$('#reviewDialog').addEventListener('close',()=>{REVIEW_ID=null;$('#reviewPreview').innerHTML='';});
+(async()=>{try{CSRF=(await api('/api/session')).csrfToken;await refresh();}catch(error){showMessage(error.message,true);}})();
+setInterval(()=>{if(!BUSY&&!document.querySelector('dialog[open]')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))refresh();},30000);

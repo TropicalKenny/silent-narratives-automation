@@ -25,6 +25,7 @@ async function geminiJson(parts,maxOutputTokens=3500){
       const r=await fetch(url,{
         method:'POST',
         headers:{'content-type':'application/json'},
+        signal:AbortSignal.timeout(45000),
         body:JSON.stringify({
           contents:[{parts}],
           generationConfig:{temperature:0,responseMimeType:'application/json',maxOutputTokens}
@@ -85,6 +86,8 @@ export async function screenCandidatesAgainstHistory(candidates,history){
   let titleResult;
   try{
     titleResult=await titleScreen(candidates,history);
+    if(!titleResult||!Array.isArray(titleResult.duplicates)||!Array.isArray(titleResult.needs_video_check))throw new Error('Duplicate screening returned an incomplete result.');
+    for(const item of [...titleResult.duplicates,...titleResult.needs_video_check])if(!item||!candidates.some(c=>c.id===Number(item.candidate_id))||!history.some(h=>h.video_id===String(item.published_video_id))||!Number.isFinite(Number(item.confidence))||Number(item.confidence)<0||Number(item.confidence)>1)throw new Error('Duplicate screening returned an invalid match.');
   }catch(e){
     out.review.push(...candidates.map(c=>({candidate:c,reason:'Duplicate screening unavailable: '+e.message})));
     return out;
@@ -101,6 +104,7 @@ export async function screenCandidatesAgainstHistory(candidates,history){
   const historyById=new Map(history.map(x=>[String(x.video_id),x]));
   for(const c of candidates){
     const d=direct.get(Number(c.id));
+    if(d&&(!historyById.has(String(d.published_video_id))||!Number.isFinite(Number(d.confidence))||Number(d.confidence)<0.85)){out.review.push({candidate:c,reason:'Title duplicate comparison was inconclusive.'});continue;}
     if(d){
       out.duplicates.push({candidate:c,published:historyById.get(String(d.published_video_id))||null,confidence:Number(d.confidence||0),reason:d.reason||'Same story as published content.'});
       continue;
@@ -109,12 +113,14 @@ export async function screenCandidatesAgainstHistory(candidates,history){
     const checks=checksByCandidate.get(Number(c.id))||[];
     if(!checks.length){out.safe.push({candidate:c});continue;}
 
-    let duplicate=null,unverified=null;
+    let duplicate=null,unverified=checks.length>4?{candidate:c,reason:'More possible overlaps remain to be verified.'}:null;
     for(const match of checks.slice(0,4)){
       const published=historyById.get(String(match.published_video_id));
-      if(!published) continue;
+      if(!published){unverified={candidate:c,reason:'Duplicate screening referenced an unknown published story.'};continue;}
       try{
+        if(!/^[A-Za-z0-9_-]{11}$/.test(published.video_id)){unverified={candidate:c,published,reason:'Possible overlap with a story still in production. Review before continuing.'};continue;}
         const verified=await compareVideos(c,published);
+        if(typeof verified?.same_story!=='boolean'||!Number.isFinite(Number(verified.confidence))||(Number(verified.confidence)<0.8||Number(verified.confidence)>1)){unverified={candidate:c,published,reason:'Actual-video comparison was inconclusive.'};continue;}
         if(verified?.same_story && Number(verified.confidence||0)>=0.8){
           duplicate={candidate:c,published,confidence:Number(verified.confidence||0),reason:verified.reason||match.reason||'Same story as published content.'};
           break;

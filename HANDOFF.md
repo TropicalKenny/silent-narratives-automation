@@ -1,3 +1,51 @@
+# Silent Narratives Automation — Authoritative Handoff
+
+Last updated: 2026-10-03. This checkpoint takes precedence over all historical checkpoints below. Never place secret values here.
+
+## Current verified deployment
+
+- Version 0.2.0, VPS path `/home/ubuntu/workspace/silent-narratives-automation`, main branch. Existing approved video design is unchanged.
+- Stable bookmark: https://vps-0868c90c.vps.ovh.ca/silent-narratives/ redirects to the current Cloudflare Quick Tunnel. Completion URL: https://author-notified-exhibit-forward.trycloudflare.com/; this hostname changes after tunnel restart.
+- `silent-narratives-v1.service` serves only `127.0.0.1:8400`. The dedicated `silent-narratives-cloudflare.service` and `silent-narratives-backup.timer` are enabled. The audit staging service is stopped.
+- Owner explicitly requested Cloudflare while retaining VPS hosting and no password sign-in. Dashboard contents and controls remain public; CSRF/security headers are not access control. Do not introduce password login without the owner's request.
+- Google OAuth uses the original registered callback `https://vps-0868c90c.vps.ovh.ca/silent-narratives/oauth/youtube/callback`. `oauth_callback_base_url` is fixed; `public_base_url` follows the tunnel. Signed state is cookie-bound and expires after ten minutes; token persistence validates channel ID `UCPVj2rGuo-spOTpzUtCayPw`.
+- Production is paused: `production_mode=manual_batch`, `batch_limit=3`, blank `batch_active_date`. Exactly one explicitly started date, slots 13:00/15:00/22:00 WAT. No automatic next-day production. Do not continue Job 5 or create new jobs until the owner starts a daily batch.
+
+## Current job and channel state
+
+- Five original job IDs, YouTube IDs and slots were preserved. No new production videos were created, uploaded, scheduled or published by this audit.
+- Job 1 Deep Water: existing private upload, confirmed cleanup retained.
+- Job 2 The Passion of the Christ: live YouTube public; local status corrected to published.
+- Job 3 Meet Bill: rejected unsupported claim, unslotted, cannot continue.
+- Job 4 Hardcore Henry: live YouTube public; local status corrected to published.
+- Job 5 I Am Legend alternate ending: analyzed, unslotted, paused. Requires independent factual and exact-scene verification. Historical downloaded alternate-ending source is not an assigned/verified scene.
+- Authenticated snapshot around 16:57 UTC: 57 subscribers, channel view counter 1,227,079, history 44 uploads (39 public / 5 private). Per-video public lifetime views sum to 1,262,906; different counter cadence/semantics prevent direct reconciliation. No Analytics retention/CTR data was available.
+- Fresh history invalidated old ready-lead screening. Zero ready recommendations can mean existing leads are awaiting a fresh check; Scan sources can spend configured API/model quota. Do not treat credentials being configured as proof of live Gemini health.
+
+## Enforced workflow and operational behavior
+
+1. Duplicate checks include published/private history and pending jobs, and apply to direct sources. Invalid/uncertain model results require review.
+2. Record an independent factual URL with notes and human confirmation before scene acquisition. Record and confirm the exact scene/timestamp before rendering. These are human attestations, not an automatic truth guarantee.
+3. Verify the full current render and four-part package before scheduling. Content/file changes invalidate the relevant render or approval fingerprint. Preserve the charcoal card, real avatar, rounded movie window, silent gameplay, scene-only audio and 1080×1920/30 fps master.
+4. Paused, rejected or incorrectly slotted jobs cannot continue. Failed jobs retain their slot. Rejecting an unuploaded job releases it. Three confirmed uploads pause the batch; no future day begins automatically. Pausing does not cancel existing YouTube schedules.
+5. Save a YouTube resumable session before sending bytes and a confirmed video ID before readback. Verify privacy, accepted upload state and the exact future private publishing timestamp before cleanup. Preserve media on uncertainty and reconcile the existing upload. Never blindly create another upload when a session or ID exists.
+6. Media transfers use 8 MiB chunks with offsets/progress. Long browser actions use asynchronous task IDs. Job state/session recovery is durable; task/progress tickets are in memory and must be checked after restart. Repeated job operations are serialized.
+7. Metrics retry with backoff; missing values stay unknown. Slot summaries compare the same checkpoint, using public captures within 30 minutes and median views/sample counts. Do not mix video ages to declare a slot winner.
+
+## Backups, limits and validation
+
+- App systemd drop-in: CPUQuota 200%, MemoryHigh 1536M, MemoryMax 2G, UMask 0077, NoNewPrivileges, protected filesystem. Unrelated VPS apps remain untouched.
+- Daily private backups at 03:30 UTC plus up to five minutes jitter; latest seven snapshots retained under project `backups/`. Consistent SQLite and credential copy; separate restored-copy integrity check passed. Fixed assets and off-VPS disaster recovery are not covered.
+- Pre-deployment rollback: `/home/ubuntu/workspace/silent-narratives-audit-20261003/rollback-20261003T165740Z`. Keep it private; it contains credentials.
+- 24 distinct checks passed: final backend/workflow 22 plus two real FFmpeg media checks run separately. Mocked failure-path uploads generated no real videos. Isolated mobile fact/scene/upload/render/review and settings flow passed. Live desktop/mobile showed no page errors or horizontal overflow.
+- Cloudflare HTTP homepage/session/state/health, invalid-CSRF rejection, controlled tunnel restart, dynamic origin redirect and fixed OAuth callback URI all passed. No actual OAuth token exchange or full VPS reboot was performed.
+- Remaining improvements: permanent named Cloudflare tunnel/custom hostname, encrypted off-VPS backup, shorter verified hook experiments, and YouTube Analytics for equal-age retention/engagement evaluation. Password-free public access remains the owner's current preference.
+- Full report: `docs/AUDIT-2026-10-03.md`; evidence: `/home/ubuntu/workspace/silent-narratives-audit-20261003/evidence/`; operations/restore notes: `README.md` and `ops/`.
+
+---
+
+## Historical handoff (superseded by the checkpoint above)
+
 # Silent Narratives Automation V1 — Authoritative Handoff
 
 Last updated: 2026-10-02
