@@ -5,7 +5,7 @@ export function validDate(value){
   const date=new Date(value+'T00:00:00Z');return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===value;
 }
 export function validSlots(value){
-  return Array.isArray(value)&&value.length===3&&new Set(value).size===3&&value.every(time=>/^([01]\d|2[0-3]):[0-5]\d$/.test(time));
+  return Array.isArray(value)&&value.length===1&&new Set(value).size===1&&value.every(time=>/^([01]\d|2[0-3]):[0-5]\d$/.test(time));
 }
 export function canonicalSource(value){
   let url;try{url=new URL(String(value));}catch{throw new Error('Enter a YouTube video or Shorts URL.');}

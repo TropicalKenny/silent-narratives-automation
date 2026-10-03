@@ -1,3 +1,9 @@
+# Current performance checkpoint — 2026-10-03
+
+YouTube Analytics is now enabled. Channel audit found that 20K+ winners have a median 95.7% Shorts-feed share, while sub-1K failures have a median 63.6% share. On multi-upload days, first uploads had a ~33.9K median while later uploads had a 65-view median. This is observational, not proof of a platform penalty, but it is the strongest controllable signal in the channel history.
+
+Current production policy: one manually started Short per day at 22:00 WAT, production paused between batches, target 6–9 seconds (hard publishing gate 6–10), hook target 8–12 words, immediate visible payoff required. Do not restore three-video daily batches without a controlled test. Existing already-published videos remain unchanged.
+
 # Current authoritative checkpoint — 2026-10-03, version 0.3.0
 
 This checkpoint takes precedence over historical records below. Owner requested the report improvements, then explicitly said **leave Cloudflare for now**. Preserve its current service, URL and configuration. Password sign-in remains disabled; manual three-video batches remain paused. No new production videos are authorized by this maintenance task.

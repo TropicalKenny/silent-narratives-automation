@@ -29,7 +29,7 @@ The helper authenticates/decrypts, checks every manifest hash, rejects unsafe me
 
 # Silent Narratives Automation
 
-Self-hosted production desk for Silent Narratives. Version 0.2.0 preserves the approved video format and uses explicitly started three-video daily batches.
+Self-hosted production desk for Silent Narratives. The current workflow preserves the approved video format and uses explicitly started one-video daily batches.
 
 ## Live deployment
 
@@ -42,14 +42,14 @@ Self-hosted production desk for Silent Narratives. Version 0.2.0 preserves the a
 
 ## Production workflow
 
-1. Choose a day with all three slots still in the future and explicitly start its batch. Default slots are 13:00, 15:00 and 22:00 in `Africa/Lagos` (WAT).
+1. Choose a day with the 22:00 WAT slot still in the future and explicitly start its one-video batch.
 2. Scan sources and select a story screened against channel history and pending work. New work receives a slot only in the active day.
 3. Analyze and review the four-part package: hook/commentary, title, description and tags. Record an independent factual source link with notes and confirm the claim.
 4. Upload the matching scene, record its timestamp and visible action, and confirm scene/audio content.
 5. Render and watch the complete preview. The approved charcoal-card layout, avatar, rounded clip, silent gameplay and scene-only audio remain authoritative.
 6. Confirm review and choose **Approve & schedule**. The app verifies the current render/package, uploads privately with the exact future publishing time, and reads the video status back before cleanup.
 
-After three confirmed uploads the batch pauses. It never starts the next day automatically. Pausing preparation does not cancel schedules already registered on YouTube. Failed jobs keep their slot; rejecting an unuploaded job releases it. Paused, rejected or unslotted jobs cannot proceed through production.
+After the confirmed upload the batch pauses. It never starts the next day automatically. Pausing preparation does not cancel schedules already registered on YouTube. Failed jobs keep their slot; rejecting an unuploaded job releases it. Paused, rejected or unslotted jobs cannot proceed through production.
 
 ## Uploads, recovery and storage
 

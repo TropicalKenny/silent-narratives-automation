@@ -5,7 +5,7 @@ export const SOURCE_TYPES=['primary','official','reporting','other'];
 export function validateCompactHook(hook){
   const result=hookReadability(hook);
   if(!result.words)throw new Error('Add an on-screen hook.');
-  if(result.tooLong)throw new Error('The on-screen hook is too long. Use at most 14 words and put context in the description.');
+  if(result.tooLong)throw new Error('The on-screen hook is too long. Use at most 12 words and put context in the description.');
   return result;
 }
 export function verifyFactsEvidence(value,type,sourceUrl){
