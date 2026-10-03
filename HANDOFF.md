@@ -1,3 +1,23 @@
+# Current authoritative checkpoint — 2026-10-03, version 0.3.0
+
+This checkpoint takes precedence over historical records below. Owner requested the report improvements, then explicitly said **leave Cloudflare for now**. Preserve its current service, URL and configuration. Password sign-in remains disabled; manual three-video batches remain paused. No new production videos are authorized by this maintenance task.
+
+Completed implementation: compact 8–14-word prompt and hard maximum 14-word render/approval/upload gate; live reading-load guidance; source-type/independent-URL checks and visible-payoff confirmation; equal-age compact/legacy hook comparisons; YouTube Analytics metrics and interactive retention curve; encrypted complete recovery bundles and optional private Drive delivery.
+
+Current Analytics access: Google returned HTTP 403 `accessNotConfigured`: YouTube Analytics API is disabled in project 399805383895. The UI links to its activation page and requests read-only reporting consent only when selected. Existing YouTube upload credentials are preserved. Data API metrics and backups continue without Analytics access.
+
+Encrypted recovery: public RSA certificate only on VPS; private key belongs to the owner's separate download and must be kept offline. Bundle includes database/credentials/source/fixed assets/referenced pending media with SHA256 manifest, authenticated AES-256-GCM, and a helper that verifies before extraction into an empty directory. Seven local snapshots retained. Daily private Drive delivery requires OAuth `drive.file` consent and enabled Drive API; do not claim it is active before its status says verified. A connector-delivered off-VPS checkpoint is distinct from ongoing automatic delivery.
+
+Validation: 36 JS checks and five Python checks passed in isolated VPS staging, including actual FFmpeg, upload failures, editor guards, reporting schemas, encrypted restoration/tamper rejection and Drive resumption/privacy. Mobile verification passed the actual fixture batch start, rendering, approval gates, reading-load guide and retention chart without page errors or overflow. Staging contains no production credentials.
+
+Existing Jobs 1–5, their YouTube IDs and slots must be preserved. Job 5 stays analyzed, unslotted and paused; do not shorten its actual package, acquire a scene or continue it until the owner explicitly starts a batch. Published videos and existing video design remain unchanged.
+
+See README for current controls and restoration, and the improvement report for completion evidence and remaining one-time Google setup.
+
+---
+
+## Historical handoff
+
 # Silent Narratives Automation — Authoritative Handoff
 
 Last updated: 2026-10-03. This checkpoint takes precedence over all historical checkpoints below. Never place secret values here.

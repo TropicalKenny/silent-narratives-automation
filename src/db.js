@@ -18,6 +18,7 @@ ensureColumn('jobs','slot_time','TEXT');
 ensureColumn('jobs','scheduled_publish_at','TEXT');
 ensureColumn('jobs','youtube_publish_at','TEXT');
 for (const name of ['upload_session_url','facts_verified_at','facts_evidence','scene_verified_at','scene_evidence','render_sha256','render_fingerprint','render_meta','approved_at','approved_fingerprint','operation_started_at','upload_requested_privacy','upload_requested_publish_at']) ensureColumn('jobs',name,'TEXT');
+for(const name of ['facts_source_type','scene_payoff','hook_profile'])ensureColumn('jobs',name,'TEXT');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS performance_snapshots (
@@ -52,6 +53,11 @@ WHERE slot_date IS NOT NULL AND slot_time IS NOT NULL AND status!='rejected';
 `);
 ensureColumn('performance_snapshots','attempts','INTEGER NOT NULL DEFAULT 0');
 ensureColumn('performance_snapshots','next_retry_at','TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS video_analytics (
+  video_id TEXT PRIMARY KEY,range_start TEXT,range_end TEXT,collected_at TEXT,
+  views INTEGER,engaged_views INTEGER,average_view_duration REAL,average_view_percentage REAL,
+  retention_curve TEXT,retention_collected_at TEXT
+);`);
 fs.chmodSync(path.join(dataDir,'silent-narratives.db'),0o600);
 
 

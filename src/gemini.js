@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { getSecret } from './secrets.js';
+import { validateCompactHook } from './editorial.js';
 
 const PRIMARY_MODEL='gemini-3.5-flash';
 const FALLBACK_MODEL='gemini-3.5-flash-lite';
@@ -100,13 +101,15 @@ export async function analyzeYouTube(url){
   const raw=packageResult.text;
   const pkg=parsePackage(raw);
   if(!pkg.hook||!pkg.title) throw new Error('Gemini returned an unexpected package format.');
+  validateCompactHook(pkg.hook);
 
   const scenePrompt=[
     'Analyze this same YouTube Short for production automation.',
     'Return ONLY valid JSON with these keys:',
-    'movie_or_show, year, scene_description, visible_action, subtitle_mode, subtitle_text, edit_note.',
+    'movie_or_show, year, scene_description, visible_action, visible_payoff, factual_uncertainty, subtitle_mode, subtitle_text, edit_note.',
     'subtitle_text must be an array of at most 2 concise on-screen lines, preferably actual meaningful dialogue/context from the scene.',
-    'Do not invent facts. If uncertain, use null and explain the uncertainty briefly in edit_note.'
+    'Distinguish visible action from claims in a competitor caption. Describe the earliest clear visual payoff. Metadata is an unverified lead for human review, not evidence.',
+    'Do not invent facts or claim independent verification. If uncertain, use null and explain the uncertainty briefly in factual_uncertainty and edit_note.'
   ].join(' ');
 
   let sceneMeta={};

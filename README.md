@@ -1,3 +1,32 @@
+# Silent Narratives Automation — version 0.3.0
+
+Current checkpoint: 3 October 2026. This section takes precedence over the older operating notes below.
+
+- Cloudflare is unchanged by owner request. Password sign-in remains disabled. Production remains paused; no videos were produced or uploaded by this improvement release.
+- Future generated hooks target 8–14 words. Hooks above 14 words cannot render, approve or upload. The review dialog shows approximate reading time; this is guidance, not measured retention. Existing published packages are unchanged.
+- New factual confirmations require a source type, an independent URL and corroborating notes. The competitor video's own URL cannot verify its claim. Exact-scene confirmation requires a visible payoff. Human review still establishes truth and audio suitability.
+- Audience response includes engaged views, average view duration/percentage and per-video retention curves. Publishing tests keep equal-age checkpoints and compare compact hooks with earlier packages. No result is treated as proof of a causal winner.
+- YouTube Analytics is disabled in the current Google project. Use **Enable Analytics API**, then **Connect read-only analytics** and **Refresh analytics**. Existing upload tokens remain saved until a valid same-channel consent completes. Reports cover completed YouTube reporting days with processing lag; they are separate from exact-age Data API checkpoints. Feed exposure/swipe metrics remain in YouTube Studio.
+- Backups now contain a consistent database, credentials, current source, fixed gameplay/avatar assets and referenced unfinished media. Unassigned raw downloads are omitted. File hashes accompany the bundle. External bundles use OpenSSL CMS AES-256-GCM and an RSA recipient certificate.
+- Only the public recipient certificate is on the VPS at `data/backup-recipient.pem`. Keep the separate private recovery key offline; do not upload it beside the encrypted backup. The VPS cannot decrypt external snapshots.
+- The daily backup timer is unchanged. Local snapshots retain seven copies. Automatic private Drive delivery is implemented and requires **Connect automatic Drive backups** to grant `drive.file` access on the existing Google OAuth client; enable the Drive API in that Google project if it is disabled. The uploader checks owner-only permissions and size. Remote copies are append-only; remote retention is not pruned automatically.
+- **Back up now** starts a serialized asynchronous backup and displays external-delivery status. Local backup success and external-delivery failure are reported separately.
+
+Verify or extract an encrypted bundle with a downloaded copy of the helper:
+
+```bash
+python3 ops/restore-backup.py recovery.tar.gz.cms --key /secure/path/recovery-key.pem
+python3 ops/restore-backup.py recovery.tar.gz.cms --key /secure/path/recovery-key.pem --destination /new/empty/recovery-directory
+```
+
+The helper authenticates/decrypts, checks every manifest hash, rejects unsafe members and refuses to overwrite a nonempty directory. Stop the app and backup/tunnel services before a deliberate live restoration. Preserve current data, remove stale WAL/SHM only while stopped, restore permissions and matching code/assets, then verify local and public health. Production restoration is an operator action; it was not performed during this release.
+
+`npm test` runs the JS workflow/media tests and Python encryption/recovery/Drive checks. No new runtime Node dependencies were added. Current release evidence is at `/home/ubuntu/workspace/silent-narratives-improvements-20261003/evidence/`.
+
+---
+
+## Earlier deployment notes
+
 # Silent Narratives Automation
 
 Self-hosted production desk for Silent Narratives. Version 0.2.0 preserves the approved video format and uses explicitly started three-video daily batches.

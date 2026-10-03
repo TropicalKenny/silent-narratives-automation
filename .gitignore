@@ -3,6 +3,7 @@ data/*.db
 data/*.db-*
 data/secrets.json
 data/.app-key
+data/backup-*
 work/*
 !work/.gitkeep
 assets/uploads/*

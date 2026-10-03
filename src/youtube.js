@@ -55,7 +55,7 @@ export async function popularVideos(channelId,minViews=5000000) {
   })).filter(x=>x.views>=minViews).sort((a,b)=>b.views-a.views);
 }
 
-export function youtubeAuthUrl(baseUrl,state) {
+export function youtubeAuthUrl(baseUrl,state,{analytics=false,backup=false}={}) {
   const clientId=getSecret('google_client_id');
   if(!clientId) throw new Error('Google OAuth client ID is not configured.');
   const redirect=baseUrl.replace(/\/$/,'')+'/oauth/youtube/callback';
@@ -66,7 +66,11 @@ export function youtubeAuthUrl(baseUrl,state) {
   u.searchParams.set('access_type','offline');
   u.searchParams.set('prompt','consent');
   if(state)u.searchParams.set('state',state);
-  u.searchParams.set('scope','https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly');
+  const scopes=['https://www.googleapis.com/auth/youtube.upload','https://www.googleapis.com/auth/youtube.readonly'];
+  if(analytics)scopes.push('https://www.googleapis.com/auth/yt-analytics.readonly');
+  if(backup)scopes.push('https://www.googleapis.com/auth/drive.file');
+  u.searchParams.set('scope',scopes.join(' '));
+  u.searchParams.set('include_granted_scopes','true');
   return u.toString();
 }
 
@@ -83,11 +87,11 @@ export async function exchangeYoutubeCode(code,baseUrl,expectedChannelId) {
   });
   const channel=await channelIdentity(data.access_token);
   if(expectedChannelId&&channel.id!==expectedChannelId)throw new Error('This Google account does not own the configured Silent Narratives channel.');
-  setSecrets({...(data.refresh_token?{youtube_refresh_token:data.refresh_token}:{}),youtube_access_token:data.access_token,youtube_access_expiry:String(Date.now()+((data.expires_in||3600)-60)*1000)});
+  setSecrets({...(data.refresh_token?{youtube_refresh_token:data.refresh_token}:{}),...(data.scope?{youtube_oauth_scopes:data.scope}:{}),youtube_access_token:data.access_token,youtube_access_expiry:String(Date.now()+((data.expires_in||3600)-60)*1000)});
   return true;
 }
 
-async function accessToken() {
+export async function accessToken() {
   const current=getSecret('youtube_access_token');
   const expiry=Number(getSecret('youtube_access_expiry')||0);
   if(current && Date.now()<expiry) return current;
@@ -108,7 +112,7 @@ async function accessToken() {
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body
   });
-  setSecrets({youtube_access_token:data.access_token,youtube_access_expiry:String(Date.now()+((data.expires_in||3600)-60)*1000)});
+  setSecrets({youtube_access_token:data.access_token,youtube_access_expiry:String(Date.now()+((data.expires_in||3600)-60)*1000),...(data.scope?{youtube_oauth_scopes:data.scope}:{})});
   return data.access_token;
 }
 

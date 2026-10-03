@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { jobDir } from './utils.js';
+import { validateCompactHook } from './editorial.js';
 
 async function run(bin,args) {
   if(bin.endsWith('/ffmpeg'))args=['-threads','2','-filter_threads','1','-filter_complex_threads','1',...args];
@@ -120,6 +121,7 @@ function makeAss(file,subs,duration,timings=[]) {
 }
 
 export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[]}) {
+  validateCompactHook(hook);
   if(!sceneFile || !fs.existsSync(sceneFile)) throw new Error('Scene video file is missing.');
   const dir=jobDir(jobId);
   const overlaySvg=path.join(dir,'overlay.svg');
