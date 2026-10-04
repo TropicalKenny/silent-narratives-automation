@@ -97,3 +97,7 @@ npm test
 Tests use temporary directories and mocked upload/model APIs; the media suite invokes real FFmpeg. The isolated browser fixture in `ops/ui-fixture.mjs` refuses to run outside a directory named `stage`. `ops/browser-verify.mjs` uses the existing VPS Playwright installation with `SN_PLAYWRIGHT_PACKAGE` pointing to its `package.json`; it renders fixture media but never clicks scheduling.
 
 See `HANDOFF.md` for the authoritative current state and `docs/AUDIT-2026-10-03.md` for completed fixes, verification limits and next improvements. Audit evidence is private at `/home/ubuntu/workspace/silent-narratives-audit-20261003/evidence/`.
+
+## Editorial originality gate
+
+New renders use dynamic_editorial_v1: independently researched hook/context, verified source scene, 2-6 timed dialogue/editorial caption beats, and purposeful payoff emphasis. Dialogue captions may only quote words actually audible in the scene. The workflow prohibits artificial engagement and edits intended to evade copyright or abuse detection.

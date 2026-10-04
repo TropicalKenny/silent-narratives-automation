@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { getSecret } from './secrets.js';
+import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 import { validateCompactHook } from './editorial.js';
 
 const PRIMARY_MODEL='gemini-3.5-flash';
@@ -128,4 +129,59 @@ export async function analyzeYouTube(url){
   }
 
   return {...pkg,raw,sceneMeta,model:packageResult.model};
+}
+function clipText(value='',max=80){return String(value||'').replace(/\s+/g,' ').trim().slice(0,max);}
+
+export async function buildEditorialCaptionPlan(sceneFile,{hook='',payoff=''}={}){
+  const apiKey=getSecret('gemini_api_key');
+  if(!apiKey)throw new Error('Gemini API key is not configured.');
+  const ai=new GoogleGenAI({apiKey});
+  let file=null;
+  try{
+    file=await ai.files.upload({file:sceneFile,config:{mimeType:'video/mp4',displayName:'Silent Narratives verified scene'}});
+    for(let i=0;i<60&&String(file.state||'').toUpperCase().includes('PROCESS');i++){
+      await new Promise(resolve=>setTimeout(resolve,1200));
+      file=await ai.files.get({name:file.name});
+    }
+    if(!file?.uri)throw new Error('Gemini could not prepare the scene for caption analysis.');
+    const prompt=[
+      'You are preparing captions for a short editorial movie/TV explainer.',
+      'The independently researched on-screen hook is: '+JSON.stringify(clipText(hook,160))+'.',
+      'The verified visual payoff is: '+JSON.stringify(clipText(payoff,220))+'.',
+      'Return ONLY JSON with keys editorial_purpose and beats.',
+      'beats must contain 2 to 6 items. Each item must have start, end, text, kind, emphasis.',
+      'start/end are seconds from the beginning of THIS uploaded scene and must be within the clip.',
+      'text should normally be 1 to 5 words so captions change quickly like modern short-form subtitles.',
+      'kind must be dialogue or editorial.',
+      'For dialogue, use only words actually audible in the clip. Do not paraphrase dialogue or invent quotes.',
+      'For editorial, add concise explanatory context that helps the viewer understand why the verified moment matters; it must not be written as a quote.',
+      'Use editorial beats only when they add meaning beyond raw dialogue.',
+      'emphasis should be one important word from text, or an empty string.',
+      'Avoid repeating the full top hook in captions.',
+      'Do not add engagement bait, algorithm language, fake urgency, or unsupported claims.',
+      'The purpose is genuine explanation/accessibility, never copyright-filter or detection evasion.'
+    ].join(' ');
+    const response=await ai.models.generateContent({
+      model:PRIMARY_MODEL,
+      contents:createUserContent([createPartFromUri(file.uri,file.mimeType||'video/mp4'),prompt]),
+      config:{responseMimeType:'application/json',temperature:0,maxOutputTokens:1800}
+    });
+    let data=JSON.parse(response.text||'{}');
+    if(Array.isArray(data))data=data[0]||{};
+    const beats=(Array.isArray(data.beats)?data.beats:[]).map(b=>({
+      start:Number(b.start),end:Number(b.end),text:clipText(b.text,55),
+      kind:b.kind==='dialogue'?'dialogue':'editorial',
+      emphasis:clipText(b.emphasis,24)
+    })).filter(b=>Number.isFinite(b.start)&&Number.isFinite(b.end)&&b.end>b.start&&b.start>=0&&b.text);
+    if(beats.length<2||beats.length>6)throw new Error('Gemini did not return 2-6 usable caption beats.');
+    for(let i=0;i<beats.length;i++){
+      if(beats[i].end-beats[i].start<0.22)beats[i].end=beats[i].start+0.22;
+      if(i&&beats[i].start<beats[i-1].start)throw new Error('Gemini returned caption beats out of order.');
+    }
+    const editorialPurpose=clipText(data.editorial_purpose,400);
+    if(editorialPurpose.length<24)throw new Error('Gemini did not explain the original editorial contribution.');
+    return {caption_profile:'dynamic_editorial_v1',editorial_purpose:editorialPurpose,beats};
+  }finally{
+    if(file?.name)try{await ai.files.delete({name:file.name});}catch{}
+  }
 }

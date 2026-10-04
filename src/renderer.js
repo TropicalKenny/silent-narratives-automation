@@ -79,43 +79,35 @@ function makeClipMask(file) {
 function assEscape(s='') {
   return String(s).replace(/\\/g,'\\\\').replace(/{/g,'\\{').replace(/}/g,'\\}').replace(/\n/g,' ');
 }
+function regexEscape(s=''){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+function assColorWord(text,emphasis) {
+  const safe=assEscape(text.toUpperCase()),word=String(emphasis||'').trim();
+  if(!word)return safe;
+  const re=new RegExp('('+regexEscape(word)+')','i');
+  return safe.replace(re,'{\\c&H00FFA63E&}$1{\\c&H00FFFFFF&}');
+}
 function makeAss(file,subs,duration,timings=[]) {
-  const arr=(Array.isArray(subs)?subs:[subs]).map(x=>String(x||'').trim()).filter(Boolean).slice(0,2);
+  const arr=(Array.isArray(subs)?subs:[subs]).map(x=>String(x||'').trim()).filter(Boolean).slice(0,6);
   const fmt=t=>{
     const h=Math.floor(t/3600),m=Math.floor((t%3600)/60),sec=(t%60).toFixed(2).padStart(5,'0');
     return h+':'+String(m).padStart(2,'0')+':'+sec;
   };
-
-  const defaultTimes=arr.length===1
-    ? [{start:Math.min(0.48,duration*0.12),end:Math.min(duration-0.08,1.60)}]
-    : [
-        {start:0.45,end:0.95},
-        {start:0.93,end:Math.min(duration-0.08,1.68)}
-      ];
-  const times=arr.map((_,i)=>({
-    start:Number(timings?.[i]?.start ?? defaultTimes[i]?.start ?? 0.45),
-    end:Number(timings?.[i]?.end ?? defaultTimes[i]?.end ?? Math.min(duration-0.08,1.60))
-  }));
-
   const events=[];
   arr.forEach((text,i)=>{
-    const t=times[i];
-    const safe=assEscape(text.toUpperCase());
-    if(i===0){
-      // Quiet setup: short lift and gentle scale-in.
-      const styled='{\\an2\\move(540,1424,540,1404,0,150)\\fad(55,70)\\fscx95\\fscy95\\t(0,145,\\fscx101\\fscy101)}'+safe;
-      events.push('Dialogue: 0,'+fmt(t.start)+','+fmt(Math.max(t.start+0.28,t.end))+',Setup,,0,0,0,,'+styled);
-    }else{
-      // Payoff: larger, warm accent, quick overshoot then settle.
-      const styled='{\\an2\\pos(540,1400)\\fad(45,90)\\fscx90\\fscy90\\t(0,90,\\fscx110\\fscy110)\\t(90,190,\\fscx100\\fscy100)}'+safe;
-      events.push('Dialogue: 1,'+fmt(t.start)+','+fmt(Math.max(t.start+0.35,t.end))+',Impact,,0,0,0,,'+styled);
-    }
+    const meta=timings?.[i]||{},kind=meta.kind==='editorial'?'editorial':'dialogue';
+    const fallbackStart=Math.min(Math.max(.32,i*(duration/Math.max(arr.length,1))),Math.max(.32,duration-.4));
+    const start=Math.max(0,Number(meta.start ?? fallbackStart));
+    const end=Math.min(duration-.04,Math.max(start+.26,Number(meta.end ?? Math.min(duration-.08,start+1.15))));
+    const style=kind==='editorial'?'Editorial':'Dialogue';
+    const colored=assColorWord(text,meta.emphasis);
+    const y=kind==='editorial'?1145:1225;
+    const styled='{\\an5\\pos(540,'+y+')\\fad(35,55)\\fscx88\\fscy88\\t(0,95,\\fscx108\\fscy108)\\t(95,175,\\fscx100\\fscy100)}'+colored;
+    events.push('Dialogue: '+(kind==='editorial'?1:0)+','+fmt(start)+','+fmt(end)+','+style+',,0,0,0,,'+styled);
   });
-
   const ass='[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n'+
     '[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'+
-    'Style: Setup,DejaVu Sans,43,&H00FFFFFF,&H000000FF,&H00101010,&H76000000,-1,0,0,0,100,100,0,0,1,4.2,1.0,2,82,82,0,1\n'+
-    'Style: Impact,DejaVu Sans,57,&H006B6BFF,&H000000FF,&H00101010,&H78000000,-1,0,0,0,100,100,0,0,1,5.0,1.4,2,72,72,0,1\n\n'+
+    'Style: Dialogue,DejaVu Sans,58,&H00FFFFFF,&H000000FF,&H00101010,&H68000000,-1,0,0,0,100,100,0.8,0,1,5.2,1.3,5,72,72,0,1\n'+
+    'Style: Editorial,DejaVu Sans,52,&H00FFFFFF,&H000000FF,&H00101010,&H68000000,-1,0,0,0,100,100,0.5,0,1,5.0,1.2,5,72,72,0,1\n\n'+
     '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'+events.join('\n')+'\n';
   fs.writeFileSync(file,ass);
 }
@@ -206,5 +198,5 @@ export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTim
     '-movflags','+faststart',preview
   ]);
 
-  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true}};
+  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:subtitles.length,captionProfile:'dynamic_editorial_v1'}};
 }

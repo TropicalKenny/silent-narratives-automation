@@ -7,7 +7,7 @@ import path from 'node:path';
 import { all, get, run, setting, setSetting } from './db.js';
 import { setSecrets, secretStatus, getSecret, setSecret } from './secrets.js';
 import { jobDir, cleanupJobVideos } from './utils.js';
-import { analyzeYouTube } from './gemini.js';
+import { analyzeYouTube, buildEditorialCaptionPlan } from './gemini.js';
 import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus, videoMetrics, publicVideoDetails } from './youtube.js';
 import { renderShort } from './renderer.js';
 import { screenCandidatesAgainstHistory } from './duplicates.js';
@@ -130,7 +130,7 @@ let backupBusy=false;
 postTask('/api/backups/run',async(req,res)=>{if(backupBusy)return fail(res,new Error('A backup is already running.'),429);backupBusy=true;try{await new Promise((resolve,reject)=>{const child=spawn('/usr/bin/python3',['ops/backup.py'],{cwd:ROOT,stdio:['ignore','ignore','pipe']});let errors='';const timer=setTimeout(()=>{child.kill('SIGTERM');reject(new Error('Backup exceeded the time limit. Check its status before retrying.'));},900000);child.stderr.on('data',chunk=>{errors=(errors+chunk).slice(-3000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);if(code===0)resolve();else reject(new Error('Backup could not complete. Check the saved recovery status and VPS service log.'));});});ok(res,{recovery:recoverySummary()});}catch(error){fail(res,error);}finally{backupBusy=false;}});
 postTask('/api/analytics/sync',async(req,res)=>{try{ok(res,await collectAnalytics());}catch(error){fail(res,error);}});
 postTask('/api/analytics/:id/retention',async(req,res)=>{try{const id=String(req.params.id);if(!get("SELECT video_id FROM channel_history WHERE video_id=? AND privacy='public'",[id]))throw new Error('Choose a public video from this channel.');const result=await videoRetention(id),row=get('SELECT * FROM video_analytics WHERE video_id=?',[id]);if(row&&row.range_start===result.window.startDate&&row.range_end===result.window.endDate)run('UPDATE video_analytics SET retention_curve=?,retention_collected_at=CURRENT_TIMESTAMP WHERE video_id=?',[JSON.stringify(result.points),id]);ok(res,{points:result.points,window:result.window});}catch(error){fail(res,error);}});
-app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.4.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
+app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.5.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
 app.get('/api/state',(req,res)=>{
   try{
     const s=secretStatus();const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 60').map(job=>{const {upload_session_url,raw_gemini,...safe}=job;return {...safe,uploadInProgress:Boolean(upload_session_url),scene_meta:sceneMeta(job),render_meta:job.render_meta?JSON.parse(job.render_meta):null,subtitles:parseSubs(job),editorial:editorialSummary(job),busy:locked.has(job.id)};});
@@ -170,7 +170,7 @@ function transferFor(id){const transfer=transfers.get(id);if(!transfer||Date.now
 function transferJob(body){if(body.kind==='scene'){const job=productionJob(Number(body.jobId));if(!job.facts_verified_at)throw new Error('Verify the factual claim before acquiring a scene.');return job.id;}if(body.kind==='background'){if(renderBusy)throw new Error('Wait for the current render before replacing gameplay.');return null;}throw new Error('Invalid media destination.');}
 function commitMedia(transfer){
   const jobId=transferJob(transfer),ext=mediaExtension(transfer.name);
-  if(transfer.kind==='scene'){const dest=path.join(jobDir(jobId),'scene'+ext);fs.renameSync(transfer.file,dest);run("UPDATE jobs SET scene_file=?,scene_verified_at=NULL,scene_evidence=NULL,scene_payoff=NULL,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,status='scene_ready',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[dest,jobId]);event(jobId,'scene_added');}
+  if(transfer.kind==='scene'){const dest=path.join(jobDir(jobId),'scene'+ext);fs.renameSync(transfer.file,dest);run("UPDATE jobs SET scene_file=?,scene_verified_at=NULL,scene_evidence=NULL,scene_payoff=NULL,editorial_profile=NULL,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,status='scene_ready',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[dest,jobId]);event(jobId,'scene_added');}
   else{const dest=path.join(ROOT,'assets','background.mp4');fs.mkdirSync(path.dirname(dest),{recursive:true});fs.renameSync(transfer.file,dest);run("UPDATE jobs SET render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL WHERE youtube_video_id IS NULL AND upload_session_url IS NULL AND status!='rejected'");}
 }
 app.post('/api/uploads/start',(req,res)=>{try{const {kind,name}=req.body,size=Number(req.body.size),jobId=transferJob(req.body);mediaExtension(name);if(!Number.isSafeInteger(size)||size<1||size>600*1024*1024)throw new Error('Choose a video between 1 byte and 600 MB.');if(transfers.size>=3)throw new Error('Finish the current media transfers before starting another.');const id=crypto.randomUUID(),file=path.join(tempDir,id+'.upload');fs.writeFileSync(file,'',{mode:0o600,flag:'wx'});transfers.set(id,{kind,name,size,jobId,file,offset:0,locked:false,updatedAt:Date.now()});ok(res,{transferId:id,chunkSize:CHUNK_SIZE});}catch(error){fail(res,error);}});
@@ -195,7 +195,7 @@ postTask('/api/jobs/from-url',async(req,res)=>{
 });
 postTask('/api/jobs/:id/analyze',async(req,res)=>{
   const id=Number(req.params.id);let claimed=false;
-  try{const job=productionJob(id);claim(id);claimed=true;run("UPDATE jobs SET status='analyzing',operation_started_at=CURRENT_TIMESTAMP,error=NULL WHERE id=?",[id]);const result=await analyzeYouTube(job.source_url);validatePackage({title:result.title,description:result.description,tags:result.tags});validateCompactHook(result.hook);run("UPDATE jobs SET status='analyzed',hook=?,yt_title=?,description=?,tags=?,raw_gemini=?,scene_meta=?,subtitle_text=?,hook_profile='compact_v1',facts_source_type=NULL,scene_payoff=NULL,facts_verified_at=NULL,facts_evidence=NULL,scene_verified_at=NULL,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[result.hook,result.title,result.description,result.tags,result.raw,JSON.stringify(result.sceneMeta),JSON.stringify(result.sceneMeta?.subtitle_text||[]),id]);event(id,'analyzed');ok(res,{package:result});}
+  try{const job=productionJob(id);claim(id);claimed=true;run("UPDATE jobs SET status='analyzing',operation_started_at=CURRENT_TIMESTAMP,error=NULL WHERE id=?",[id]);const result=await analyzeYouTube(job.source_url);validatePackage({title:result.title,description:result.description,tags:result.tags});validateCompactHook(result.hook);run("UPDATE jobs SET status='analyzed',hook=?,yt_title=?,description=?,tags=?,raw_gemini=?,scene_meta=?,subtitle_text=?,hook_profile='compact_v1',editorial_profile=NULL,facts_source_type=NULL,scene_payoff=NULL,facts_verified_at=NULL,facts_evidence=NULL,scene_verified_at=NULL,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[result.hook,result.title,result.description,result.tags,result.raw,JSON.stringify(result.sceneMeta),JSON.stringify(result.sceneMeta?.subtitle_text||[]),id]);event(id,'analyzed');ok(res,{package:result});}
   catch(error){if(claimed)run("UPDATE jobs SET status='analysis_failed',error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",[safeError(error),id]);fail(res,error);}finally{if(claimed)release(id);}
 });
 app.patch('/api/jobs/:id',(req,res)=>{
@@ -212,11 +212,31 @@ app.patch('/api/jobs/:id',(req,res)=>{
   }catch(error){fail(res,error);}
 });
 app.post('/api/jobs/:id/scene',(req,res,next)=>{try{const job=productionJob(Number(req.params.id));if(!job.facts_verified_at)throw new Error('Verify the factual claim before acquiring a scene.');next();}catch(error){fail(res,error);}},upload.single('scene'),(req,res)=>{
-  try{const id=Number(req.params.id),job=productionJob(id);if(!req.file)throw new Error('Choose the matching scene video.');const ext=path.extname(req.file.originalname||'').toLowerCase();if(!['.mp4','.mov','.mkv','.webm'].includes(ext))throw new Error('Use MP4, MOV, MKV or WebM video.');const dest=path.join(jobDir(id),'scene'+ext);fs.renameSync(req.file.path,dest);run("UPDATE jobs SET scene_file=?,scene_verified_at=NULL,scene_evidence=NULL,scene_payoff=NULL,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,status='scene_ready',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[dest,id]);event(id,'scene_added');ok(res,{sceneReady:true});}catch(error){if(req.file)fs.rmSync(req.file.path,{force:true});fail(res,error);}
+  try{const id=Number(req.params.id),job=productionJob(id);if(!req.file)throw new Error('Choose the matching scene video.');const ext=path.extname(req.file.originalname||'').toLowerCase();if(!['.mp4','.mov','.mkv','.webm'].includes(ext))throw new Error('Use MP4, MOV, MKV or WebM video.');const dest=path.join(jobDir(id),'scene'+ext);fs.renameSync(req.file.path,dest);run("UPDATE jobs SET scene_file=?,scene_verified_at=NULL,scene_evidence=NULL,scene_payoff=NULL,editorial_profile=NULL,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,status='scene_ready',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[dest,id]);event(id,'scene_added');ok(res,{sceneReady:true});}catch(error){if(req.file)fs.rmSync(req.file.path,{force:true});fail(res,error);}
 });
 postTask('/api/jobs/:id/render',async(req,res)=>{
   const id=Number(req.params.id);let claimed=false;
-  try{const job=productionJob(id);if(!job.facts_verified_at||!job.scene_verified_at)throw new Error('Verify the factual claim and exact scene before rendering.');verifyEditorialReview(job);if(renderBusy)throw new Error('Another render is running. Try again when it finishes.');claim(id);claimed=true;renderBusy=true;run("UPDATE jobs SET status='rendering',operation_started_at=CURRENT_TIMESTAMP,approved_at=NULL,approved_fingerprint=NULL,error=NULL WHERE id=?",[id]);const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[]});const hash=await fileSha256(rendered.output);run("UPDATE jobs SET render_file=?,preview_file=?,render_sha256=?,render_fingerprint=?,render_meta=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,rendered.preview,hash,renderFingerprint(job),JSON.stringify(rendered.meta),id]);event(id,'rendered');ok(res,{rendered:true,duration:rendered.duration});}
+  try{
+    let job=productionJob(id);
+    if(!job.facts_verified_at||!job.scene_verified_at)throw new Error('Verify the factual claim and exact scene before rendering.');
+    if(renderBusy)throw new Error('Another render is running. Try again when it finishes.');
+    claim(id);claimed=true;renderBusy=true;
+    run("UPDATE jobs SET status='rendering',operation_started_at=CURRENT_TIMESTAMP,approved_at=NULL,approved_fingerprint=NULL,error=NULL WHERE id=?",[id]);
+    let meta=sceneMeta(job),subs=parseSubs(job);
+    const usable=job.editorial_profile==='dynamic_editorial_v1'&&Array.isArray(meta.subtitle_timings)&&meta.subtitle_timings.length===subs.length&&subs.length>=2;
+    if(!usable){
+      const plan=await buildEditorialCaptionPlan(job.scene_file,{hook:job.hook,payoff:job.scene_payoff});
+      subs=plan.beats.map(x=>x.text);
+      meta={...meta,caption_profile:plan.caption_profile,editorial_purpose:plan.editorial_purpose,subtitle_timings:plan.beats.map(x=>({start:x.start,end:x.end,kind:x.kind,emphasis:x.emphasis}))};
+      run("UPDATE jobs SET subtitle_text=?,scene_meta=?,editorial_profile='dynamic_editorial_v1',render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[JSON.stringify(subs),JSON.stringify(meta),id]);
+      job=productionJob(id);
+    }
+    verifyEditorialReview(job);
+    const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[]});
+    const hash=await fileSha256(rendered.output);
+    run("UPDATE jobs SET render_file=?,preview_file=?,render_sha256=?,render_fingerprint=?,render_meta=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,rendered.preview,hash,renderFingerprint(job),JSON.stringify(rendered.meta),id]);
+    event(id,'rendered');ok(res,{rendered:true,duration:rendered.duration});
+  }
   catch(error){if(claimed)run("UPDATE jobs SET status='render_failed',render_fingerprint=NULL,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",[safeError(error),id]);fail(res,error);}finally{if(claimed){renderBusy=false;release(id);}}
 });
 app.get('/api/jobs/:id/video',(req,res)=>{const job=get('SELECT render_file,preview_file FROM jobs WHERE id=?',[Number(req.params.id)]),file=req.query.master==='1'?job?.render_file:job?.preview_file||job?.render_file;if(!file||!fs.existsSync(file))return res.status(404).send('Render not available.');res.setHeader('Cache-Control','private,max-age=300');res.sendFile(path.resolve(file));});

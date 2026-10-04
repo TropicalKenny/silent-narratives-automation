@@ -1,3 +1,9 @@
+# Originality / YPP safeguard checkpoint — 2026-10-04
+
+Future renders use dynamic_editorial_v1: a researched Silent Narratives hook plus 2-6 scene-accurate caption beats generated from the verified local scene. Audible dialogue may be captioned exactly; editorial callouts are styled separately and must add explanatory value. Rendering and publishing are blocked without an editorial purpose, timed caption plan, verified facts, verified scene and visible payoff. Detection-evasion edits and artificial-engagement tactics are explicitly prohibited. This is a content-quality safeguard, not a guarantee of YouTube monetization eligibility.
+
+The already-uploaded/scheduled Job 6 remains unchanged because YouTube already confirmed that upload and its local media was deleted. Apply this profile to new renders only.
+
 # Current performance checkpoint — 2026-10-03
 
 YouTube Analytics is now enabled. Channel audit found that 20K+ winners have a median 95.7% Shorts-feed share, while sub-1K failures have a median 63.6% share. On multi-upload days, first uploads had a ~33.9K median while later uploads had a 65-view median. This is observational, not proof of a platform penalty, but it is the strongest controllable signal in the channel history.

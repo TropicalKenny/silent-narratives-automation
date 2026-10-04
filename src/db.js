@@ -18,7 +18,7 @@ ensureColumn('jobs','slot_time','TEXT');
 ensureColumn('jobs','scheduled_publish_at','TEXT');
 ensureColumn('jobs','youtube_publish_at','TEXT');
 for (const name of ['upload_session_url','facts_verified_at','facts_evidence','scene_verified_at','scene_evidence','render_sha256','render_fingerprint','render_meta','approved_at','approved_fingerprint','operation_started_at','upload_requested_privacy','upload_requested_publish_at']) ensureColumn('jobs',name,'TEXT');
-for(const name of ['facts_source_type','scene_payoff','hook_profile'])ensureColumn('jobs',name,'TEXT');
+for(const name of ['facts_source_type','scene_payoff','hook_profile','editorial_profile'])ensureColumn('jobs',name,'TEXT');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS performance_snapshots (

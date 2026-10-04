@@ -13,7 +13,7 @@ ffmpeg(['-f','lavfi','-i','color=c=0x204030:s=360x640:r=30','-f','lavfi','-i','s
 ffmpeg(['-i','scene.mp4','-an','-c:v','copy','silent.mp4']);
 after(()=>{process.chdir(original);fs.rmSync(fixture,{recursive:true,force:true});});
 test('render preserves portrait format and scene-only audio while keeping the event loop responsive',async()=>{
- let ticks=0;const interval=setInterval(()=>ticks++,10);let result;try{result=await renderShort({jobId:1,sceneFile:path.resolve('scene.mp4'),hook:'A fixture scene confirms the action.',subtitles:['WATCH THE SETUP','THE MOMENT'],subtitleTimings:[{start:.3,end:.8},{start:1,end:1.6}]});}finally{clearInterval(interval);}
+ let ticks=0;const interval=setInterval(()=>ticks++,10);let result;try{result=await renderShort({jobId:1,sceneFile:path.resolve('scene.mp4'),hook:'A fixture scene confirms the action.',subtitles:['WATCH THE SETUP','THE MOMENT'],subtitleTimings:[{start:.3,end:.8,kind:'editorial',emphasis:'SETUP'},{start:1,end:1.6,kind:'dialogue',emphasis:'MOMENT'}]});}finally{clearInterval(interval);}
  assert.ok(ticks>20,'FFmpeg must not block the Node event loop');
  const data=JSON.parse(execFileSync('/usr/bin/ffprobe',['-v','error','-show_streams','-show_format','-of','json',result.output]));const video=data.streams.find(x=>x.codec_type==='video'),audio=data.streams.find(x=>x.codec_type==='audio');
  assert.equal(video.width,1080);assert.equal(video.height,1920);assert.equal(video.r_frame_rate,'30/1');assert.equal(audio.channels,2);assert.equal(audio.sample_rate,'48000');assert.ok(Math.abs(Number(data.format.duration)-2)<.15);assert.ok(fs.statSync(result.preview).size<fs.statSync(result.output).size);
