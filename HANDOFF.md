@@ -1,3 +1,9 @@
+# Adaptive template checkpoint — 2026-10-04
+
+Public benchmark research sampled high-view movie/TV Shorts from multiple channels, including Mistaket Market (156M-view sample), Screen Brief (66M-view sample), Movie Land (26M-view sample), plus the user-provided subtitle reference. Repeated transferable patterns were: scene-first composition, a compact persistent context hook, 1–5-word timed captions, selective word emphasis, and purposeful punch-ins/callouts at the visual payoff. Patterns explicitly not copied include thick borders that shrink footage, raw clip reposting without added explanation, and editing intended to bypass detection.
+
+New renders use scene_first_v2: compact branded hook panel (about 20% of frame), scene-derived stage (about 65% of frame), blurred scene fill behind a sharper moderately cropped source layer, dynamic editorial/dialogue captions, and a restrained payoff zoom. Gameplay remains silent and visually secondary. The prior template is treated as legacy_card_v1 for performance comparison. Existing Job 6 scheduled on YouTube remains unchanged.
+
 # Originality / YPP safeguard checkpoint — 2026-10-04
 
 Future renders use dynamic_editorial_v1: a researched Silent Narratives hook plus 2-6 scene-accurate caption beats generated from the verified local scene. Audible dialogue may be captioned exactly; editorial callouts are styled separately and must add explanatory value. Rendering and publishing are blocked without an editorial purpose, timed caption plan, verified facts, verified scene and visible payoff. Detection-evasion edits and artificial-engagement tactics are explicitly prohibited. This is a content-quality safeguard, not a guarantee of YouTube monetization eligibility.

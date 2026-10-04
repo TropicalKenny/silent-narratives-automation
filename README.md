@@ -101,3 +101,7 @@ See `HANDOFF.md` for the authoritative current state and `docs/AUDIT-2026-10-03.
 ## Editorial originality gate
 
 New renders use dynamic_editorial_v1: independently researched hook/context, verified source scene, 2-6 timed dialogue/editorial caption beats, and purposeful payoff emphasis. Dialogue captions may only quote words actually audible in the scene. The workflow prohibits artificial engagement and edits intended to evade copyright or abuse detection.
+
+## Adaptive visual template
+
+Future renders use scene_first_v2: compact branded context at the top, a scene-dominant stage, dynamic 1–5-word caption beats, and restrained payoff emphasis. Template version is stored per job so equal-age performance can be compared against the original card layout.

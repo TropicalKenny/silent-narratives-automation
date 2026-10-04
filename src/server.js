@@ -9,7 +9,7 @@ import { setSecrets, secretStatus, getSecret, setSecret } from './secrets.js';
 import { jobDir, cleanupJobVideos } from './utils.js';
 import { analyzeYouTube, buildEditorialCaptionPlan } from './gemini.js';
 import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus, videoMetrics, publicVideoDetails } from './youtube.js';
-import { renderShort } from './renderer.js';
+import { renderShort, TEMPLATE_PROFILE } from './renderer.js';
 import { screenCandidatesAgainstHistory } from './duplicates.js';
 import { installSecurity } from './security.js';
 import {editorialSummary,validateCompactHook,verifyFactsEvidence,verifyEditorialReview} from './editorial.js';
@@ -117,10 +117,11 @@ async function collectDuePerformanceSnapshots(){
 }
 function performanceSummary(){
   const checkpoints=all('SELECT p.*,j.slot_date,j.slot_time,j.youtube_url,j.yt_title FROM performance_snapshots p JOIN jobs j ON j.id=p.job_id ORDER BY p.target_at DESC LIMIT 200').map(row=>({...row,lateMinutes:row.captured_at?Math.max(0,(Date.parse(row.captured_at+'Z')-Date.parse(row.target_at))/60000):null}));
-  const eligible=all("SELECT p.*,j.slot_time,j.hook_profile FROM performance_snapshots p JOIN jobs j ON j.id=p.job_id WHERE p.privacy='public' AND p.views IS NOT NULL AND j.slot_time IS NOT NULL AND p.captured_at IS NOT NULL AND (julianday(p.captured_at)-julianday(p.target_at))*1440 BETWEEN 0 AND 30");
+  const eligible=all("SELECT p.*,j.slot_time,j.hook_profile,j.template_profile FROM performance_snapshots p JOIN jobs j ON j.id=p.job_id WHERE p.privacy='public' AND p.views IS NOT NULL AND j.slot_time IS NOT NULL AND p.captured_at IS NOT NULL AND (julianday(p.captured_at)-julianday(p.target_at))*1440 BETWEEN 0 AND 30");
   const profiles=[];for(const [checkpoint] of CHECKPOINTS)for(const profile of ['compact_v1','legacy']){const rows=eligible.filter(x=>x.checkpoint===checkpoint&&((x.hook_profile||'legacy')===profile)),values=rows.map(x=>x.views).sort((a,b)=>a-b);profiles.push({profile,checkpoint,samples:values.length,medianViews:values.length?(values[Math.floor((values.length-1)/2)]+values[Math.ceil((values.length-1)/2)])/2:null});}
+  const templates=[];for(const [checkpoint] of CHECKPOINTS)for(const profile of ['scene_first_v2','legacy_card_v1']){const rows=eligible.filter(x=>x.checkpoint===checkpoint&&((x.template_profile||'legacy_card_v1')===profile)),values=rows.map(x=>x.views).sort((a,b)=>a-b);templates.push({profile,checkpoint,samples:values.length,medianViews:values.length?(values[Math.floor((values.length-1)/2)]+values[Math.ceil((values.length-1)/2)])/2:null});}
   const slots=[];for(const time of publishingSlots())for(const [checkpoint] of CHECKPOINTS){const rows=eligible.filter(x=>x.slot_time===time&&x.checkpoint===checkpoint),values=rows.map(x=>x.views).sort((a,b)=>a-b);slots.push({slot_time:time,checkpoint,samples:values.length,median_views:values.length?(values[Math.floor((values.length-1)/2)]+values[Math.ceil((values.length-1)/2)])/2:null});}
-  return {checkpoints,slots,profiles,toleranceMinutes:30};
+  return {checkpoints,slots,profiles,templates,toleranceMinutes:30};
 }
 let analyticsBusy=false;
 function analyticsSummary(){return {status:setting('analytics_status','not_connected'),message:setting('analytics_message','Enable the Analytics API and connect read-only reporting access.'),enableUrl:ANALYTICS_ENABLE_URL,lastSync:setting('analytics_last_sync',''),rangeStart:setting('analytics_range_start',''),rangeEnd:setting('analytics_range_end',''),busy:analyticsBusy,rows:all("SELECT a.*,h.title,h.published_at FROM video_analytics a JOIN channel_history h ON h.video_id=a.video_id WHERE h.privacy='public' ORDER BY h.published_at DESC").map(row=>({...row,retention_curve:row.retention_curve?JSON.parse(row.retention_curve):null}))};}
@@ -130,7 +131,7 @@ let backupBusy=false;
 postTask('/api/backups/run',async(req,res)=>{if(backupBusy)return fail(res,new Error('A backup is already running.'),429);backupBusy=true;try{await new Promise((resolve,reject)=>{const child=spawn('/usr/bin/python3',['ops/backup.py'],{cwd:ROOT,stdio:['ignore','ignore','pipe']});let errors='';const timer=setTimeout(()=>{child.kill('SIGTERM');reject(new Error('Backup exceeded the time limit. Check its status before retrying.'));},900000);child.stderr.on('data',chunk=>{errors=(errors+chunk).slice(-3000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);if(code===0)resolve();else reject(new Error('Backup could not complete. Check the saved recovery status and VPS service log.'));});});ok(res,{recovery:recoverySummary()});}catch(error){fail(res,error);}finally{backupBusy=false;}});
 postTask('/api/analytics/sync',async(req,res)=>{try{ok(res,await collectAnalytics());}catch(error){fail(res,error);}});
 postTask('/api/analytics/:id/retention',async(req,res)=>{try{const id=String(req.params.id);if(!get("SELECT video_id FROM channel_history WHERE video_id=? AND privacy='public'",[id]))throw new Error('Choose a public video from this channel.');const result=await videoRetention(id),row=get('SELECT * FROM video_analytics WHERE video_id=?',[id]);if(row&&row.range_start===result.window.startDate&&row.range_end===result.window.endDate)run('UPDATE video_analytics SET retention_curve=?,retention_collected_at=CURRENT_TIMESTAMP WHERE video_id=?',[JSON.stringify(result.points),id]);ok(res,{points:result.points,window:result.window});}catch(error){fail(res,error);}});
-app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.5.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
+app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.6.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
 app.get('/api/state',(req,res)=>{
   try{
     const s=secretStatus();const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 60').map(job=>{const {upload_session_url,raw_gemini,...safe}=job;return {...safe,uploadInProgress:Boolean(upload_session_url),scene_meta:sceneMeta(job),render_meta:job.render_meta?JSON.parse(job.render_meta):null,subtitles:parseSubs(job),editorial:editorialSummary(job),busy:locked.has(job.id)};});
@@ -229,6 +230,10 @@ postTask('/api/jobs/:id/render',async(req,res)=>{
       subs=plan.beats.map(x=>x.text);
       meta={...meta,caption_profile:plan.caption_profile,editorial_purpose:plan.editorial_purpose,subtitle_timings:plan.beats.map(x=>({start:x.start,end:x.end,kind:x.kind,emphasis:x.emphasis}))};
       run("UPDATE jobs SET subtitle_text=?,scene_meta=?,editorial_profile='dynamic_editorial_v1',render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[JSON.stringify(subs),JSON.stringify(meta),id]);
+      job=productionJob(id);
+    }
+    if(job.template_profile!==TEMPLATE_PROFILE){
+      run("UPDATE jobs SET template_profile=?,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[TEMPLATE_PROFILE,id]);
       job=productionJob(id);
     }
     verifyEditorialReview(job);
