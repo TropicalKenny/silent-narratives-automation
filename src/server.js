@@ -131,7 +131,7 @@ let backupBusy=false;
 postTask('/api/backups/run',async(req,res)=>{if(backupBusy)return fail(res,new Error('A backup is already running.'),429);backupBusy=true;try{await new Promise((resolve,reject)=>{const child=spawn('/usr/bin/python3',['ops/backup.py'],{cwd:ROOT,stdio:['ignore','ignore','pipe']});let errors='';const timer=setTimeout(()=>{child.kill('SIGTERM');reject(new Error('Backup exceeded the time limit. Check its status before retrying.'));},900000);child.stderr.on('data',chunk=>{errors=(errors+chunk).slice(-3000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);if(code===0)resolve();else reject(new Error('Backup could not complete. Check the saved recovery status and VPS service log.'));});});ok(res,{recovery:recoverySummary()});}catch(error){fail(res,error);}finally{backupBusy=false;}});
 postTask('/api/analytics/sync',async(req,res)=>{try{ok(res,await collectAnalytics());}catch(error){fail(res,error);}});
 postTask('/api/analytics/:id/retention',async(req,res)=>{try{const id=String(req.params.id);if(!get("SELECT video_id FROM channel_history WHERE video_id=? AND privacy='public'",[id]))throw new Error('Choose a public video from this channel.');const result=await videoRetention(id),row=get('SELECT * FROM video_analytics WHERE video_id=?',[id]);if(row&&row.range_start===result.window.startDate&&row.range_end===result.window.endDate)run('UPDATE video_analytics SET retention_curve=?,retention_collected_at=CURRENT_TIMESTAMP WHERE video_id=?',[JSON.stringify(result.points),id]);ok(res,{points:result.points,window:result.window});}catch(error){fail(res,error);}});
-app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.6.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
+app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.6.1',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
 app.get('/api/state',(req,res)=>{
   try{
     const s=secretStatus();const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 60').map(job=>{const {upload_session_url,raw_gemini,...safe}=job;return {...safe,uploadInProgress:Boolean(upload_session_url),scene_meta:sceneMeta(job),render_meta:job.render_meta?JSON.parse(job.render_meta):null,subtitles:parseSubs(job),editorial:editorialSummary(job),busy:locked.has(job.id)};});
@@ -230,11 +230,11 @@ postTask('/api/jobs/:id/render',async(req,res)=>{
       subs=plan.beats.map(x=>x.text);
       meta={...meta,caption_profile:plan.caption_profile,editorial_purpose:plan.editorial_purpose,subtitle_timings:plan.beats.map(x=>({start:x.start,end:x.end,kind:x.kind,emphasis:x.emphasis}))};
       run("UPDATE jobs SET subtitle_text=?,scene_meta=?,editorial_profile='dynamic_editorial_v1',render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[JSON.stringify(subs),JSON.stringify(meta),id]);
-      job=productionJob(id);
+      job=findJob(id);
     }
     if(job.template_profile!==TEMPLATE_PROFILE){
       run("UPDATE jobs SET template_profile=?,render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[TEMPLATE_PROFILE,id]);
-      job=productionJob(id);
+      job=findJob(id);
     }
     verifyEditorialReview(job);
     const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[]});

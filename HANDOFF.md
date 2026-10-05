@@ -1,3 +1,9 @@
+# Scene-first v3 correction — 2026-10-05
+
+The first v2 phone preview exposed a false scene-area metric: a 1250px stage contained only 760px of sharp footage, with the remainder rendered as a conspicuous blur band. `scene_first_v3` fixes this by using a 246px (~13%) compact header and a 1320px scene stage. Portrait/4:5 sources such as the Superman gag reel render almost the entire stage as actual sharp footage (~68% of the 1920px frame). Dialogue/editorial captions are shifted left to x=335 and reduced in size for the YouTube Shorts right-side UI safe zone. The template no longer applies the v2 blur-strip composition to portraitish sources.
+
+The corrected Alan Tudyk render was inspected from exported real frames at the opening and payoff before replacement of the scheduled upload.
+
 # Adaptive template checkpoint — 2026-10-04
 
 Public benchmark research sampled high-view movie/TV Shorts from multiple channels, including Mistaket Market (156M-view sample), Screen Brief (66M-view sample), Movie Land (26M-view sample), plus the user-provided subtitle reference. Repeated transferable patterns were: scene-first composition, a compact persistent context hook, 1–5-word timed captions, selective word emphasis, and purposeful punch-ins/callouts at the visual payoff. Patterns explicitly not copied include thick borders that shrink footage, raw clip reposting without added explanation, and editing intended to bypass detection.

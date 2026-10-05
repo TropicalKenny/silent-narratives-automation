@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { jobDir } from './utils.js';
 import { validateCompactHook } from './editorial.js';
 
-export const TEMPLATE_PROFILE='scene_first_v2';
+export const TEMPLATE_PROFILE='scene_first_v3';
 
 async function run(bin,args) {
   if(bin.endsWith('/ffmpeg'))args=['-threads','2','-filter_threads','1','-filter_complex_threads','1',...args];
@@ -49,30 +49,29 @@ function avatarDataUri() {
   return 'data:image/jpeg;base64,'+fs.readFileSync(avatar).toString('base64');
 }
 function makeOverlay(file,hook) {
-  const lines=wrap(hook,32).slice(0,3);
-  const fontSize=lines.length>=3?48:54;
-  const lineHeight=Math.round(fontSize*1.18);
-  const startY=247-(lines.length-1)*Math.round(lineHeight*.42);
+  const lines=wrap(hook,44).slice(0,2);
+  const fontSize=lines.length>1?46:50;
+  const lineHeight=Math.round(fontSize*1.15);
+  const startY=190-(lines.length-1)*Math.round(lineHeight*.42);
   const tspans=lines.map((line,i)=>'<tspan x="540" dy="'+(i===0?0:lineHeight)+'">'+xml(line)+'</tspan>').join('');
   const avatar=avatarDataUri();
   const svg='<?xml version="1.0" encoding="UTF-8"?>'+
   '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1080" height="1920" viewBox="0 0 1080 1920">'+
-    '<defs><clipPath id="avatarClip"><circle cx="82" cy="111" r="38"/></clipPath></defs>'+
-    '<rect x="18" y="48" width="1044" height="380" rx="34" fill="#11191b" fill-opacity="0.96" stroke="#e8eeee" stroke-width="3"/>'+
-    (avatar?'<image x="44" y="73" width="76" height="76" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" xlink:href="'+avatar+'"/>':
-      '<circle cx="82" cy="111" r="38" fill="#263236"/><text x="82" y="123" text-anchor="middle" font-family="DejaVu Sans" font-size="24" font-weight="700" fill="#ffffff">SN</text>')+
-    '<text x="140" y="105" font-family="DejaVu Sans" font-size="28" font-weight="700" fill="#ffffff">SILENT NARRATIVES</text>'+
-    '<text x="140" y="139" font-family="DejaVu Sans" font-size="22" fill="#c9d2d4">@silentnarrativesYT</text>'+
-    '<rect x="46" y="180" width="988" height="2" rx="1" fill="#39474a"/>'+
+    '<defs><clipPath id="avatarClip"><circle cx="70" cy="82" r="28"/></clipPath></defs>'+
+    '<rect x="18" y="30" width="1044" height="246" rx="28" fill="#11191b" fill-opacity="0.96" stroke="#d9e0e2" stroke-width="2"/>'+
+    (avatar?'<image x="42" y="54" width="56" height="56" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" xlink:href="'+avatar+'"/>':
+      '<circle cx="70" cy="82" r="28" fill="#263236"/><text x="70" y="90" text-anchor="middle" font-family="DejaVu Sans" font-size="18" font-weight="700" fill="#ffffff">SN</text>')+
+    '<text x="112" y="75" font-family="DejaVu Sans" font-size="24" font-weight="700" fill="#ffffff">SILENT NARRATIVES</text>'+
+    '<text x="112" y="103" font-family="DejaVu Sans" font-size="18" fill="#bfc8ca">@silentnarrativesYT</text>'+
     '<text x="540" y="'+startY+'" text-anchor="middle" font-family="DejaVu Sans" font-size="'+fontSize+'" font-weight="700" fill="#f6f7f7">'+tspans+'</text>'+
-    '<rect x="458" y="400" width="164" height="6" rx="3" fill="#ff8f3d"/>'+
+    '<rect x="472" y="254" width="136" height="5" rx="2.5" fill="#ff8f3d"/>'+
   '</svg>';
   fs.writeFileSync(file,svg);
 }
 function makeClipMask(file) {
   const svg='<?xml version="1.0" encoding="UTF-8"?>'+
-  '<svg xmlns="http://www.w3.org/2000/svg" width="1044" height="1250" viewBox="0 0 1044 1250">'+
-    '<rect x="0" y="0" width="1044" height="1250" rx="42" fill="#ffffff"/>'+
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1044" height="1320" viewBox="0 0 1044 1320">'+
+    '<rect x="0" y="0" width="1044" height="1320" rx="34" fill="#ffffff"/>'+
   '</svg>';
   fs.writeFileSync(file,svg);
 }
@@ -100,14 +99,14 @@ function makeAss(file,subs,duration,timings=[]) {
     const end=Math.min(duration-.04,Math.max(start+.26,Number(meta.end ?? Math.min(duration-.08,start+1.15))));
     const style=kind==='editorial'?'Editorial':'Dialogue';
     const colored=assColorWord(text,meta.emphasis);
-    const y=kind==='editorial'?1135:1265;
-    const styled='{\\an5\\pos(540,'+y+')\\fad(35,55)\\fscx88\\fscy88\\t(0,95,\\fscx108\\fscy108)\\t(95,175,\\fscx100\\fscy100)}'+colored;
+    const y=kind==='editorial'?1185:1310;
+    const styled='{\\an5\\pos(335,'+y+')\\fad(35,55)\\fscx88\\fscy88\\t(0,95,\\fscx108\\fscy108)\\t(95,175,\\fscx100\\fscy100)}'+colored;
     events.push('Dialogue: '+(kind==='editorial'?1:0)+','+fmt(start)+','+fmt(end)+','+style+',,0,0,0,,'+styled);
   });
   const ass='[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n'+
     '[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'+
-    'Style: Dialogue,DejaVu Sans,58,&H00FFFFFF,&H000000FF,&H00101010,&H68000000,-1,0,0,0,100,100,0.8,0,1,5.2,1.3,5,72,72,0,1\n'+
-    'Style: Editorial,DejaVu Sans,52,&H00FFFFFF,&H000000FF,&H00101010,&H68000000,-1,0,0,0,100,100,0.5,0,1,5.0,1.2,5,72,72,0,1\n\n'+
+    'Style: Dialogue,DejaVu Sans,50,&H00FFFFFF,&H000000FF,&H00101010,&H68000000,-1,0,0,0,100,100,0.8,0,1,5.2,1.3,5,72,72,0,1\n'+
+    'Style: Editorial,DejaVu Sans,46,&H00FFFFFF,&H000000FF,&H00101010,&H68000000,-1,0,0,0,100,100,0.5,0,1,5.0,1.2,5,72,72,0,1\n\n'+
     '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'+events.join('\n')+'\n';
   fs.writeFileSync(file,ass);
 }
@@ -144,18 +143,20 @@ export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTim
   const lastBeat=subtitleTimings?.length?subtitleTimings[subtitleTimings.length-1]:null;
   const payoffStart=Number(lastBeat?.start ?? Math.max(0.85,d*0.55));
   const payoffFrame=Math.max(1,Math.round(payoffStart*30));
-  const zoomExpr="zoompan=z='if(lt(on,"+payoffFrame+"),1,min(1.045,1+(on-"+payoffFrame+")*0.00075))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-if(gte(on,"+payoffFrame+"),3,0)':d=1:s=1044x760:fps=30,";
+  const sourceRatio=Number(media.width||0)/Number(media.height||1);
+  const portraitish=sourceRatio<=0.90;
+  const sharpScene=portraitish
+    ? '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',scale=1044:1320:force_original_aspect_ratio=decrease:flags=lanczos,pad=1044:1320:(ow-iw)/2:(oh-ih)/2:color=#090b0c,setsar=1,format=rgba[stageRgb];'
+    : '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',split=2[sceneFill0][sceneMain0];'+
+      '[sceneFill0]scale=1044:1320:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:1320,gblur=sigma=18,eq=brightness=-0.28:saturation=0.72[sceneFill];'+
+      '[sceneMain0]scale=1044:1320:force_original_aspect_ratio=decrease:flags=lanczos,pad=1044:1320:(ow-iw)/2:(oh-ih)/2:color=#090b0c,format=rgba[sceneMain];'+
+      '[sceneFill][sceneMain]overlay=0:0[stageRgb];';
   const filter=
-    '[0:v]trim=duration='+d+',setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,eq=brightness=-0.08:saturation=0.78,unsharp=5:5:0.18:5:5:0.0,setsar=1[bg];'+
-    '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',split=2[sceneSoft0][sceneMain0];'+
-    '[sceneSoft0]scale=1044:1250:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:1250,gblur=sigma=25,eq=brightness=-0.24:saturation=0.72[sceneSoft];'+
-    '[sceneMain0]scale=1352:760:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:760,'+
-      zoomExpr+
-      'format=rgba[sceneMain];'+
-    '[sceneSoft][sceneMain]overlay=0:245[stageRgb];'+
-    '[3:v]setpts=PTS-STARTPTS,scale=1044:1250,format=gray[mask];[stageRgb][mask]alphamerge[stage];'+
+    '[0:v]trim=duration='+d+',setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,eq=brightness=-0.16:saturation=0.62,setsar=1[bg];'+
+    sharpScene+
+    '[3:v]setpts=PTS-STARTPTS,scale=1044:1320,format=gray[mask];[stageRgb][mask]alphamerge[stage];'+
     '[2:v]setpts=PTS-STARTPTS,format=rgba[cardfx];'+
-    '[bg][cardfx]overlay=0:0[card];[card][stage]overlay=18:468[comp];'+
+    '[bg][cardfx]overlay=0:0[card];[card][stage]overlay=18:296[comp];'+
     "[comp]ass='"+assEsc+"'[outv]";
 
   // Final audio comes ONLY from the main scene (input 1). Background audio is never mapped.
@@ -201,5 +202,5 @@ export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTim
     '-movflags','+faststart',preview
   ]);
 
-  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:subtitles.length,captionProfile:'dynamic_editorial_v1',templateProfile:TEMPLATE_PROFILE,sceneStagePercent:65}};
+  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:subtitles.length,captionProfile:'dynamic_editorial_v1',templateProfile:TEMPLATE_PROFILE,sceneStagePercent:69,sharpScenePercent:68,shortsSafeCaptionX:335}};
 }
