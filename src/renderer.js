@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { jobDir } from './utils.js';
 import { validateCompactHook } from './editorial.js';
 
-export const TEMPLATE_PROFILE='scene_first_v3';
+export const TEMPLATE_PROFILE='scene_first_v4';
 
 async function run(bin,args) {
   if(bin.endsWith('/ffmpeg'))args=['-threads','2','-filter_threads','1','-filter_complex_threads','1',...args];
@@ -49,22 +49,20 @@ function avatarDataUri() {
   return 'data:image/jpeg;base64,'+fs.readFileSync(avatar).toString('base64');
 }
 function makeOverlay(file,hook) {
-  const lines=wrap(hook,44).slice(0,2);
-  const fontSize=lines.length>1?46:50;
-  const lineHeight=Math.round(fontSize*1.15);
-  const startY=190-(lines.length-1)*Math.round(lineHeight*.42);
-  const tspans=lines.map((line,i)=>'<tspan x="540" dy="'+(i===0?0:lineHeight)+'">'+xml(line)+'</tspan>').join('');
+  const lines=wrap(hook,38).slice(0,2);
+  const fontSize=lines.length>1?37:42;
+  const lineHeight=Math.round(fontSize*1.12);
+  const startY=145;
+  const tspans=lines.map((line,i)=>'<tspan x="52" dy="'+(i===0?0:lineHeight)+'">'+xml(line)+'</tspan>').join('');
   const avatar=avatarDataUri();
   const svg='<?xml version="1.0" encoding="UTF-8"?>'+
   '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1080" height="1920" viewBox="0 0 1080 1920">'+
-    '<defs><clipPath id="avatarClip"><circle cx="70" cy="82" r="28"/></clipPath></defs>'+
-    '<rect x="18" y="30" width="1044" height="246" rx="28" fill="#11191b" fill-opacity="0.96" stroke="#d9e0e2" stroke-width="2"/>'+
-    (avatar?'<image x="42" y="54" width="56" height="56" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" xlink:href="'+avatar+'"/>':
-      '<circle cx="70" cy="82" r="28" fill="#263236"/><text x="70" y="90" text-anchor="middle" font-family="DejaVu Sans" font-size="18" font-weight="700" fill="#ffffff">SN</text>')+
-    '<text x="112" y="75" font-family="DejaVu Sans" font-size="24" font-weight="700" fill="#ffffff">SILENT NARRATIVES</text>'+
-    '<text x="112" y="103" font-family="DejaVu Sans" font-size="18" fill="#bfc8ca">@silentnarrativesYT</text>'+
-    '<text x="540" y="'+startY+'" text-anchor="middle" font-family="DejaVu Sans" font-size="'+fontSize+'" font-weight="700" fill="#f6f7f7">'+tspans+'</text>'+
-    '<rect x="472" y="254" width="136" height="5" rx="2.5" fill="#ff8f3d"/>'+
+    '<defs><clipPath id="avatarClip"><circle cx="64" cy="88" r="24"/></clipPath></defs>'+
+    '<rect x="24" y="54" width="1032" height="166" rx="24" fill="#080c0d" fill-opacity="0.62" stroke="#ffffff" stroke-opacity="0.14" stroke-width="2"/>'+
+    (avatar?'<image x="40" y="64" width="48" height="48" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)" xlink:href="'+avatar+'"/>':'')+
+    '<text x="100" y="82" font-family="DejaVu Sans" font-size="23" font-weight="700" fill="#ffffff" fill-opacity="0.92">SILENT NARRATIVES</text>'+
+    '<text x="100" y="108" font-family="DejaVu Sans" font-size="17" fill="#ffffff" fill-opacity="0.68">@silentnarrativesYT</text>'+
+    '<text x="52" y="'+startY+'" text-anchor="start" font-family="DejaVu Sans" font-size="'+fontSize+'" font-weight="700" fill="#ffffff">'+tspans+'</text>'+
   '</svg>';
   fs.writeFileSync(file,svg);
 }
@@ -111,56 +109,34 @@ function makeAss(file,subs,duration,timings=[]) {
   fs.writeFileSync(file,ass);
 }
 
-export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[]}) {
+export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[],sourceHasBurnedCaptions=false,maxDuration=null}) {
   validateCompactHook(hook);
   if(!sceneFile || !fs.existsSync(sceneFile)) throw new Error('Scene video file is missing.');
   const dir=jobDir(jobId);
   const overlaySvg=path.join(dir,'overlay.svg');
   const overlayPng=path.join(dir,'overlay.png');
-  const maskSvg=path.join(dir,'clip-mask.svg');
-  const maskPng=path.join(dir,'clip-mask.png');
   const assFile=path.join(dir,'subtitles.ass');
   const composite=path.join(dir,'composite.mp4');
   const openingFrame=path.join(dir,'opening-frame.png');
   const output=path.join(dir,'final.mp4');
   const media=await probeMedia(sceneFile);
-  const duration=media.duration;
+  const duration=maxDuration?Math.min(media.duration,Number(maxDuration)):media.duration;
   const d=Number(duration.toFixed(3));
 
   makeOverlay(overlaySvg,hook);
-  makeClipMask(maskSvg);
-  makeAss(assFile,subtitles,duration,subtitleTimings);
+  makeAss(assFile,sourceHasBurnedCaptions?[]:subtitles,duration,sourceHasBurnedCaptions?[]:subtitleTimings);
   await run('/usr/bin/ffmpeg',['-y','-i',overlaySvg,'-frames:v','1',overlayPng]);
-  await run('/usr/bin/ffmpeg',['-y','-i',maskSvg,'-frames:v','1',maskPng]);
 
-  const bg=path.resolve('assets/background.mp4');
-  const args=['-y'];
-  if(fs.existsSync(bg)) args.push('-stream_loop','-1','-i',bg);
-  else args.push('-f','lavfi','-i','color=c=#171717:s=1080x1920:r=30');
-  args.push('-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng,'-loop','1','-framerate','30','-i',maskPng);
-
+  // V4 is source-scene first. There is intentionally no gameplay/background input.
+  const args=['-y','-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng];
   const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
-  const lastBeat=subtitleTimings?.length?subtitleTimings[subtitleTimings.length-1]:null;
-  const payoffStart=Number(lastBeat?.start ?? Math.max(0.85,d*0.55));
-  const payoffFrame=Math.max(1,Math.round(payoffStart*30));
-  const sourceRatio=Number(media.width||0)/Number(media.height||1);
-  const portraitish=sourceRatio<=0.90;
-  const sharpScene=portraitish
-    ? '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',scale=1044:1320:force_original_aspect_ratio=decrease:flags=lanczos,pad=1044:1320:(ow-iw)/2:(oh-ih)/2:color=#090b0c,setsar=1,format=rgba[stageRgb];'
-    : '[1:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',split=2[sceneFill0][sceneMain0];'+
-      '[sceneFill0]scale=1044:1320:force_original_aspect_ratio=increase:flags=lanczos,crop=1044:1320,gblur=sigma=18,eq=brightness=-0.28:saturation=0.72[sceneFill];'+
-      '[sceneMain0]scale=1044:1320:force_original_aspect_ratio=decrease:flags=lanczos,pad=1044:1320:(ow-iw)/2:(oh-ih)/2:color=#090b0c,format=rgba[sceneMain];'+
-      '[sceneFill][sceneMain]overlay=0:0[stageRgb];';
   const filter=
-    '[0:v]trim=duration='+d+',setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,eq=brightness=-0.16:saturation=0.62,setsar=1[bg];'+
-    sharpScene+
-    '[3:v]setpts=PTS-STARTPTS,scale=1044:1320,format=gray[mask];[stageRgb][mask]alphamerge[stage];'+
-    '[2:v]setpts=PTS-STARTPTS,format=rgba[cardfx];'+
-    '[bg][cardfx]overlay=0:0[card];[card][stage]overlay=18:296[comp];'+
-    "[comp]ass='"+assEsc+"'[outv]";
+    '[0:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1[scene];'+
+    '[1:v]setpts=PTS-STARTPTS,format=rgba[cardfx];'+
+    (sourceHasBurnedCaptions?'[scene][cardfx]overlay=0:0[outv]':'[scene][cardfx]overlay=0:0[comp];[comp]ass=\''+assEsc+'\'[outv]');
 
-  // Final audio comes ONLY from the main scene (input 1). Background audio is never mapped.
-  args.push('-filter_complex',filter,'-map','[outv]','-map','1:a?','-t',String(d),'-r','30',
+  // Final audio comes ONLY from the source scene (input 0).
+  args.push('-filter_complex',filter,'-map','[outv]','-map','0:a?','-t',String(d),'-r','30',
     '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-threads','2','-crf','12',
     '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
     '-c:a','aac','-b:a','320k','-ar','48000','-ac','2','-movflags','+faststart',composite);
@@ -202,5 +178,5 @@ export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTim
     '-movflags','+faststart',preview
   ]);
 
-  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:subtitles.length,captionProfile:'dynamic_editorial_v1',templateProfile:TEMPLATE_PROFILE,sceneStagePercent:69,sharpScenePercent:68,shortsSafeCaptionX:335}};
+  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:subtitles.length,captionProfile:'dynamic_editorial_v1',templateProfile:TEMPLATE_PROFILE,sceneStagePercent:100,sharpScenePercent:100,shortsSafeCaptionX:335,gameplayBackground:false,sourceHasBurnedCaptions:Boolean(sourceHasBurnedCaptions)}};
 }

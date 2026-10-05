@@ -131,7 +131,7 @@ let backupBusy=false;
 postTask('/api/backups/run',async(req,res)=>{if(backupBusy)return fail(res,new Error('A backup is already running.'),429);backupBusy=true;try{await new Promise((resolve,reject)=>{const child=spawn('/usr/bin/python3',['ops/backup.py'],{cwd:ROOT,stdio:['ignore','ignore','pipe']});let errors='';const timer=setTimeout(()=>{child.kill('SIGTERM');reject(new Error('Backup exceeded the time limit. Check its status before retrying.'));},900000);child.stderr.on('data',chunk=>{errors=(errors+chunk).slice(-3000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);if(code===0)resolve();else reject(new Error('Backup could not complete. Check the saved recovery status and VPS service log.'));});});ok(res,{recovery:recoverySummary()});}catch(error){fail(res,error);}finally{backupBusy=false;}});
 postTask('/api/analytics/sync',async(req,res)=>{try{ok(res,await collectAnalytics());}catch(error){fail(res,error);}});
 postTask('/api/analytics/:id/retention',async(req,res)=>{try{const id=String(req.params.id);if(!get("SELECT video_id FROM channel_history WHERE video_id=? AND privacy='public'",[id]))throw new Error('Choose a public video from this channel.');const result=await videoRetention(id),row=get('SELECT * FROM video_analytics WHERE video_id=?',[id]);if(row&&row.range_start===result.window.startDate&&row.range_end===result.window.endDate)run('UPDATE video_analytics SET retention_curve=?,retention_collected_at=CURRENT_TIMESTAMP WHERE video_id=?',[JSON.stringify(result.points),id]);ok(res,{points:result.points,window:result.window});}catch(error){fail(res,error);}});
-app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.6.1',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
+app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.7.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
 app.get('/api/state',(req,res)=>{
   try{
     const s=secretStatus();const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 60').map(job=>{const {upload_session_url,raw_gemini,...safe}=job;return {...safe,uploadInProgress:Boolean(upload_session_url),scene_meta:sceneMeta(job),render_meta:job.render_meta?JSON.parse(job.render_meta):null,subtitles:parseSubs(job),editorial:editorialSummary(job),busy:locked.has(job.id)};});
@@ -237,7 +237,7 @@ postTask('/api/jobs/:id/render',async(req,res)=>{
       job=findJob(id);
     }
     verifyEditorialReview(job);
-    const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[]});
+    const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[],sourceHasBurnedCaptions:Boolean(sceneMeta(job).source_has_burned_captions),maxDuration:sceneMeta(job).max_duration||null});
     const hash=await fileSha256(rendered.output);
     run("UPDATE jobs SET render_file=?,preview_file=?,render_sha256=?,render_fingerprint=?,render_meta=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,rendered.preview,hash,renderFingerprint(job),JSON.stringify(rendered.meta),id]);
     event(id,'rendered');ok(res,{rendered:true,duration:rendered.duration});
