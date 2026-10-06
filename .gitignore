@@ -16,3 +16,6 @@ backups/
 __pycache__/
 *.pyc
 tools/yt-dlp
+public/remotion/*.mp4
+public/*qa*.jpg
+public/qa-*/

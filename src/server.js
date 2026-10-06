@@ -8,7 +8,7 @@ import { all, get, run, setting, setSetting } from './db.js';
 import { setSecrets, secretStatus, getSecret, setSecret } from './secrets.js';
 import { jobDir, cleanupJobVideos } from './utils.js';
 import { analyzeYouTube, buildEditorialCaptionPlan } from './gemini.js';
-import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus, videoMetrics, publicVideoDetails } from './youtube.js';
+import { resolveChannel, popularVideos, ownChannelVideos, youtubeAuthUrl, exchangeYoutubeCode, uploadVideo, videoStatus, videoMetrics, publicVideoDetails, deleteVideo } from './youtube.js';
 import { renderShort, TEMPLATE_PROFILE } from './renderer.js';
 import { screenCandidatesAgainstHistory } from './duplicates.js';
 import { installSecurity } from './security.js';
@@ -131,7 +131,7 @@ let backupBusy=false;
 postTask('/api/backups/run',async(req,res)=>{if(backupBusy)return fail(res,new Error('A backup is already running.'),429);backupBusy=true;try{await new Promise((resolve,reject)=>{const child=spawn('/usr/bin/python3',['ops/backup.py'],{cwd:ROOT,stdio:['ignore','ignore','pipe']});let errors='';const timer=setTimeout(()=>{child.kill('SIGTERM');reject(new Error('Backup exceeded the time limit. Check its status before retrying.'));},900000);child.stderr.on('data',chunk=>{errors=(errors+chunk).slice(-3000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);if(code===0)resolve();else reject(new Error('Backup could not complete. Check the saved recovery status and VPS service log.'));});});ok(res,{recovery:recoverySummary()});}catch(error){fail(res,error);}finally{backupBusy=false;}});
 postTask('/api/analytics/sync',async(req,res)=>{try{ok(res,await collectAnalytics());}catch(error){fail(res,error);}});
 postTask('/api/analytics/:id/retention',async(req,res)=>{try{const id=String(req.params.id);if(!get("SELECT video_id FROM channel_history WHERE video_id=? AND privacy='public'",[id]))throw new Error('Choose a public video from this channel.');const result=await videoRetention(id),row=get('SELECT * FROM video_analytics WHERE video_id=?',[id]);if(row&&row.range_start===result.window.startDate&&row.range_end===result.window.endDate)run('UPDATE video_analytics SET retention_curve=?,retention_collected_at=CURRENT_TIMESTAMP WHERE video_id=?',[JSON.stringify(result.points),id]);ok(res,{points:result.points,window:result.window});}catch(error){fail(res,error);}});
-app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.7.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
+app.get('/health',(req,res)=>{try{get('SELECT 1');ok(res,{service:'silent-narratives-v1',version:'0.8.0',database:'ok',renderBusy,collecting});}catch(error){fail(res,error,503);}});
 app.get('/api/state',(req,res)=>{
   try{
     const s=secretStatus();const jobs=all('SELECT * FROM jobs ORDER BY id DESC LIMIT 60').map(job=>{const {upload_session_url,raw_gemini,...safe}=job;return {...safe,uploadInProgress:Boolean(upload_session_url),scene_meta:sceneMeta(job),render_meta:job.render_meta?JSON.parse(job.render_meta):null,subtitles:parseSubs(job),editorial:editorialSummary(job),busy:locked.has(job.id)};});
@@ -228,7 +228,7 @@ postTask('/api/jobs/:id/render',async(req,res)=>{
     if(!usable){
       const plan=await buildEditorialCaptionPlan(job.scene_file,{hook:job.hook,payoff:job.scene_payoff});
       subs=plan.beats.map(x=>x.text);
-      meta={...meta,caption_profile:plan.caption_profile,editorial_purpose:plan.editorial_purpose,subtitle_timings:plan.beats.map(x=>({start:x.start,end:x.end,kind:x.kind,emphasis:x.emphasis}))};
+      meta={...meta,caption_profile:plan.caption_profile,editorial_purpose:plan.editorial_purpose,subtitle_timings:plan.beats.map(x=>({start:x.start,end:x.end,kind:x.kind,emphasis:x.emphasis})),focus_points:plan.focus_points||[]};
       run("UPDATE jobs SET subtitle_text=?,scene_meta=?,editorial_profile='dynamic_editorial_v1',render_fingerprint=NULL,approved_at=NULL,approved_fingerprint=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[JSON.stringify(subs),JSON.stringify(meta),id]);
       job=findJob(id);
     }
@@ -237,7 +237,7 @@ postTask('/api/jobs/:id/render',async(req,res)=>{
       job=findJob(id);
     }
     verifyEditorialReview(job);
-    const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[],sourceHasBurnedCaptions:Boolean(sceneMeta(job).source_has_burned_captions),maxDuration:sceneMeta(job).max_duration||null});
+    const rendered=await renderShort({jobId:id,sceneFile:job.scene_file,hook:job.hook,subtitles:parseSubs(job),subtitleTimings:sceneMeta(job).subtitle_timings||[],sourceHasBurnedCaptions:Boolean(sceneMeta(job).source_has_burned_captions),maxDuration:sceneMeta(job).max_duration||null,cropPlan:sceneMeta(job).crop_plan||[],focusPoints:sceneMeta(job).focus_points||[],hookEmphasis:sceneMeta(job).hook_emphasis||''});
     const hash=await fileSha256(rendered.output);
     run("UPDATE jobs SET render_file=?,preview_file=?,render_sha256=?,render_fingerprint=?,render_meta=?,status='rendered',updated_at=CURRENT_TIMESTAMP WHERE id=?",[rendered.output,rendered.preview,hash,renderFingerprint(job),JSON.stringify(rendered.meta),id]);
     event(id,'rendered');ok(res,{rendered:true,duration:rendered.duration});
@@ -278,6 +278,9 @@ async function publish(req,res,scheduled){
 postTask('/api/jobs/:id/schedule',(req,res)=>publish(req,res,true));
 postTask('/api/jobs/:id/upload',(req,res)=>publish(req,res,false));
 postTask('/api/jobs/:id/reconcile',async(req,res)=>{const id=Number(req.params.id);let claimed=false;try{const job=findJob(id);if(!job.youtube_video_id)throw new Error('The upload has no confirmed video ID. Resume the saved upload session through its original action.');claim(id);claimed=true;ok(res,await reconcile(job));}catch(error){fail(res,error);}finally{if(claimed)release(id);}});
+
+postTask('/api/jobs/:id/youtube-delete',async(req,res)=>{const id=Number(req.params.id);let claimed=false;try{const job=findJob(id);if(!job?.youtube_video_id)throw new Error('This job has no YouTube video to delete.');claim(id);claimed=true;const videoId=job.youtube_video_id;await deleteVideo(videoId);run("DELETE FROM performance_snapshots WHERE job_id=?",[id]);const hasRender=job.render_file&&fs.existsSync(job.render_file);run("UPDATE jobs SET youtube_video_id=NULL,youtube_url=NULL,youtube_publish_at=NULL,upload_confirmed_at=NULL,upload_session_url=NULL,upload_requested_publish_at=NULL,upload_requested_privacy=NULL,deleted_at=NULL,status=?,error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",[hasRender?'rendered':'scene_ready',id]);event(id,'youtube_deleted',videoId);ok(res,{deleted:true,videoId,status:hasRender?'rendered':'scene_ready'});}catch(error){fail(res,error);}finally{if(claimed)release(id);}});
+
 app.get('/oauth/youtube/start',(req,res)=>{try{res.redirect(youtubeAuthUrl(oauthBaseUrl(req),security.issueOAuthState(req,res),{analytics:req.query.analytics==='1',backup:req.query.backup==='1'}));}catch(error){res.status(400).send(safeError(error));}});
 app.get('/oauth/youtube/callback',async(req,res)=>{try{security.verifyOAuthState(req,res,req.query.state);if(!req.query.code)throw new Error('Google did not return an authorization code.');await exchangeYoutubeCode(String(req.query.code),oauthBaseUrl(req),setting('own_channel_id',''));res.redirect(baseUrl(req)+'/?youtube=connected');}catch(error){res.status(400).send(safeError(error));}});
 app.use((error,req,res,next)=>{if(req.file)fs.rmSync(req.file.path,{force:true});fail(res,error?.code==='LIMIT_FILE_SIZE'?new Error('The upload exceeds 600 MB.'):error);});

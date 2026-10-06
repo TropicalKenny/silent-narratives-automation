@@ -66,7 +66,7 @@ export function youtubeAuthUrl(baseUrl,state,{analytics=false,backup=false}={}) 
   u.searchParams.set('access_type','offline');
   u.searchParams.set('prompt','consent');
   if(state)u.searchParams.set('state',state);
-  const scopes=['https://www.googleapis.com/auth/youtube.upload','https://www.googleapis.com/auth/youtube.readonly'];
+  const scopes=['https://www.googleapis.com/auth/youtube.upload','https://www.googleapis.com/auth/youtube.readonly','https://www.googleapis.com/auth/youtube.force-ssl'];
   if(analytics)scopes.push('https://www.googleapis.com/auth/yt-analytics.readonly');
   if(backup)scopes.push('https://www.googleapis.com/auth/drive.file');
   u.searchParams.set('scope',scopes.join(' '));
@@ -217,6 +217,14 @@ export async function uploadVideo({file,title,description,tags,privacy='private'
   return confirmed(data,response.status);
 }
 
+
+
+export async function deleteVideo(videoId) {
+  const token=await accessToken();
+  const u=new URL(apiBase+'/videos');u.searchParams.set('id',String(videoId));
+  await jsonFetch(u,{method:'DELETE',headers:{Authorization:'Bearer '+token}});
+  return true;
+}
 
 export async function videoStatus(videoId) {
   const token=await accessToken();

@@ -1,15 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { jobDir } from './utils.js';
 import { validateCompactHook } from './editorial.js';
 
-export const TEMPLATE_PROFILE='scene_first_v4';
+export const TEMPLATE_PROFILE='scene_first_v5';
+const APP_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 
-async function run(bin,args) {
+async function run(bin,args,options={}) {
   if(bin.endsWith('/ffmpeg'))args=['-threads','2','-filter_threads','1','-filter_complex_threads','1',...args];
   return new Promise((resolve,reject)=>{
-    const child=spawn(bin,args,{stdio:['ignore','pipe','pipe']});
+    const child=spawn(bin,args,{stdio:['ignore','pipe','pipe'],cwd:options.cwd||undefined});
     let output='',errors='';
     const timer=setTimeout(()=>{child.kill('SIGKILL');reject(new Error('Media processing exceeded the ten-minute limit.'));},600000);
     child.stdout.on('data',chunk=>{output=(output+chunk).slice(-200000);});
@@ -43,6 +45,21 @@ async function probeMedia(file) {
   if(!Number.isFinite(duration)||duration<0.3||duration>180)throw new Error('Use a valid scene between 0.3 and 180 seconds.');
   return {videoDuration,audioDuration,duration,width:video.width,height:video.height};
 }
+
+function focusPointsToCropPlan(points,media){
+  const items=(Array.isArray(points)?points:[]).map(p=>({start:Number(p.start),subject:Number(p.subject_x_percent)})).filter(p=>Number.isFinite(p.start)&&p.start>=0&&Number.isFinite(p.subject));
+  if(!items.length)return [];
+  const w=Number(media.width)||1080,h=Number(media.height)||1920;
+  const scale=Math.max(1080/w,1920/h),scaledWidth=w*scale,excess=scaledWidth-1080;
+  if(excess<=1)return [{start:0,x:50}];
+  return items.sort((a,b)=>a.start-b.start).map(p=>{
+    const subject=Math.max(0,Math.min(100,p.subject))/100;
+    const offset=subject*scaledWidth-540;
+    const x=Math.max(0,Math.min(100,(offset/excess)*100));
+    return {start:Number(p.start.toFixed(3)),x:Number(x.toFixed(1))};
+  }).slice(0,6);
+}
+
 function avatarDataUri() {
   const avatar=path.resolve('assets/channel-avatar.jpg');
   if(!fs.existsSync(avatar)) return '';
@@ -109,74 +126,43 @@ function makeAss(file,subs,duration,timings=[]) {
   fs.writeFileSync(file,ass);
 }
 
-export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[],sourceHasBurnedCaptions=false,maxDuration=null}) {
+export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTimings=[],sourceHasBurnedCaptions=false,maxDuration=null,cropPlan=[],focusPoints=[],hookEmphasis=''}) {
   validateCompactHook(hook);
-  if(!sceneFile || !fs.existsSync(sceneFile)) throw new Error('Scene video file is missing.');
-  const dir=jobDir(jobId);
-  const overlaySvg=path.join(dir,'overlay.svg');
-  const overlayPng=path.join(dir,'overlay.png');
-  const assFile=path.join(dir,'subtitles.ass');
-  const composite=path.join(dir,'composite.mp4');
-  const openingFrame=path.join(dir,'opening-frame.png');
-  const output=path.join(dir,'final.mp4');
+  if(!sceneFile || !fs.existsSync(sceneFile))throw new Error('Scene video file is missing.');
   const media=await probeMedia(sceneFile);
   const duration=maxDuration?Math.min(media.duration,Number(maxDuration)):media.duration;
   const d=Number(duration.toFixed(3));
-
-  makeOverlay(overlaySvg,hook);
-  makeAss(assFile,sourceHasBurnedCaptions?[]:subtitles,duration,sourceHasBurnedCaptions?[]:subtitleTimings);
-  await run('/usr/bin/ffmpeg',['-y','-i',overlaySvg,'-frames:v','1',overlayPng]);
-
-  // V4 is source-scene first. There is intentionally no gameplay/background input.
-  const args=['-y','-i',sceneFile,'-loop','1','-framerate','30','-i',overlayPng];
-  const assEsc=assFile.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'");
-  const filter=
-    '[0:v]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=0.20,trim=duration='+d+',scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1[scene];'+
-    '[1:v]setpts=PTS-STARTPTS,format=rgba[cardfx];'+
-    (sourceHasBurnedCaptions?'[scene][cardfx]overlay=0:0[outv]':'[scene][cardfx]overlay=0:0[comp];[comp]ass=\''+assEsc+'\'[outv]');
-
-  // Final audio comes ONLY from the source scene (input 0).
-  args.push('-filter_complex',filter,'-map','[outv]','-map','0:a?','-t',String(d),'-r','30',
-    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-threads','2','-crf','12',
-    '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-    '-c:a','aac','-b:a','320k','-ar','48000','-ac','2','-movflags','+faststart',composite);
-  await run('/usr/bin/ffmpeg',args);
-
-  // The first ~0.20s of the layered composite is not fully populated by FFmpeg framesync.
-  // Replace that interval with the first complete composed frame AND the same-duration silence,
-  // then continue both video and audio from the same 0.20s source timestamp. This preserves A/V sync.
-  const hold=Math.min(0.20,Math.max(0.10,d*0.08));
-  await run('/usr/bin/ffmpeg',[
-    '-y','-ss',String(hold),'-i',composite,'-frames:v','1',openingFrame
-  ]);
-  const syncedHeadFilter=
-    '[0:v]trim=duration='+hold+',setpts=PTS-STARTPTS,scale=1080:1920,setsar=1[holdv];'+
-    '[1:v]trim=start='+hold+':duration='+Math.max(0.1,d-hold)+',setpts=PTS-STARTPTS[restv];'+
-    '[holdv][restv]concat=n=2:v=1:a=0[outv];'+
-    '[2:a]atrim=duration='+hold+',asetpts=PTS-STARTPTS[holda];'+
-    '[1:a]atrim=start='+hold+':duration='+Math.max(0.1,d-hold)+',asetpts=PTS-STARTPTS[resta];'+
-    '[holda][resta]concat=n=2:v=0:a=1[outa]';
-  await run('/usr/bin/ffmpeg',[
-    '-y','-loop','1','-framerate','30','-i',openingFrame,
-    '-i',composite,
-    '-f','lavfi','-i','anullsrc=r=48000:cl=stereo',
-    '-filter_complex',syncedHeadFilter,
-    '-map','[outv]','-map','[outa]','-t',String(d),'-r','30',
-    '-c:v','libx264','-profile:v','high','-level','4.1','-preset','slow','-threads','2','-crf','15',
-    '-pix_fmt','yuv420p','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-    '-c:a','aac','-b:a','320k','-ar','48000','-ac','2','-movflags','+faststart',output
-  ]);
-
-  // Keep the upload master untouched. Generate a much lighter review copy for phone/browser playback.
-  const preview=path.join(dir,'preview.mp4');
-  await run('/usr/bin/ffmpeg',[
-    '-y','-i',output,
-    '-vf','scale=720:1280:flags=lanczos',
-    '-c:v','libx264','-profile:v','high','-level','3.1','-preset','veryfast','-threads','2','-crf','23',
-    '-maxrate','2800k','-bufsize','5600k','-pix_fmt','yuv420p',
-    '-c:a','aac','-b:a','128k','-ar','48000','-ac','2',
-    '-movflags','+faststart',preview
-  ]);
-
-  return {output,preview,duration,meta:{duration,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:subtitles.length,captionProfile:'dynamic_editorial_v1',templateProfile:TEMPLATE_PROFILE,sceneStagePercent:100,sharpScenePercent:100,shortsSafeCaptionX:335,gameplayBackground:false,sourceHasBurnedCaptions:Boolean(sourceHasBurnedCaptions)}};
+  if(!Number.isFinite(d)||d<.3)throw new Error('The scene duration is invalid.');
+  const dir=jobDir(jobId); fs.mkdirSync(dir,{recursive:true});
+  const publicDir=path.join(APP_ROOT,'public','remotion'); fs.mkdirSync(publicDir,{recursive:true});
+  const ext=(path.extname(sceneFile)||'.mp4').toLowerCase();
+  const publicName=`job-${jobId}-source${ext}`;
+  const publicSource=path.join(publicDir,publicName);
+  const output=path.resolve(path.join(dir,'final.mp4'));
+  const preview=path.resolve(path.join(dir,'preview.mp4'));
+  let beats=(Array.isArray(subtitles)?subtitles:[subtitles]).map((text,i)=>{
+    const meta=subtitleTimings?.[i]||{};
+    const fallbackStart=Math.min(Math.max(.2,i*(d/Math.max(subtitles.length,1))),Math.max(.2,d-.4));
+    const start=Math.max(0,Number(meta.start??fallbackStart));
+    let end=Math.min(d-.02,Math.max(start+.22,Number(meta.end??Math.min(d-.05,start+1.05))));
+    if(i===subtitles.length-1&&meta.kind==='editorial')end=Math.min(end,start+1.45,Math.max(start+.5,d-.75));
+    return {start,end,text:String(text||'').trim(),kind:meta.kind==='editorial'?'editorial':'dialogue',emphasis:String(meta.emphasis||'').trim(),payoff:i===subtitles.length-1&&meta.kind==='editorial'};
+  }).filter(x=>x.text&&x.end>x.start).slice(0,6);
+  if(sourceHasBurnedCaptions){const editorialOnly=beats.filter(x=>x.kind==='editorial');if(editorialOnly.length)beats=editorialOnly;}
+  if(!beats.length)throw new Error('The v5 edit requires dynamic caption beats.');
+  const autoPlan=focusPointsToCropPlan(focusPoints,media);
+  const defaultPlan=[{start:0,x:50}];
+  const resolvedPlan=Array.isArray(cropPlan)&&cropPlan.length?cropPlan:(autoPlan.length?autoPlan:defaultPlan);
+  const props={src:`remotion/${publicName}`,duration:d,hook:String(hook),hookEmphasis:String(hookEmphasis||''),headerEnd:Math.min(1.75,Math.max(1.35,d*.25)),beats,cropPlan:resolvedPlan,captionTop:1325,payoffCaptionTop:210,hookTop:76,eyebrow:'SILENT NARRATIVES'};
+  fs.copyFileSync(sceneFile,publicSource);
+  try{
+    const bin=path.join(APP_ROOT,'node_modules','.bin','remotion');
+    const entry=path.join(APP_ROOT,'tools','remotion-v5','index.jsx');
+    const config=path.join(APP_ROOT,'tools','remotion-v5','remotion.config.mjs');
+    await run(bin,['render',entry,'EditorialV5',output,'--config='+config,'--codec=h264','--crf=18','--concurrency=2','--props',JSON.stringify(props)],{cwd:APP_ROOT});
+  } finally {
+    fs.rmSync(publicSource,{force:true});
+  }
+  await run('/usr/bin/ffmpeg',['-y','-i',output,'-vf','scale=720:1280:flags=lanczos','-c:v','libx264','-profile:v','high','-level','3.1','-preset','veryfast','-threads','2','-crf','23','-maxrate','2800k','-bufsize','5600k','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-ar','48000','-ac','2','-movflags','+faststart',preview]);
+  return {output,preview,duration:d,meta:{duration:d,hookWords:String(hook).trim().split(/\s+/).length,width:1080,height:1920,fps:30,sceneAudio:true,captionBeats:beats.length,captionProfile:'dynamic_editorial_v1',templateProfile:TEMPLATE_PROFILE,editorEngine:'remotion_v5',sceneStagePercent:100,sharpScenePercent:100,shortsSafeCaptionX:70,gameplayBackground:false,sourceHasBurnedCaptions:Boolean(sourceHasBurnedCaptions),cropPlan:props.cropPlan}};
 }

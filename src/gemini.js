@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { getSecret } from './secrets.js';
-import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { validateCompactHook } from './editorial.js';
 
 const PRIMARY_MODEL='gemini-3.5-flash';
@@ -148,8 +148,11 @@ export async function buildEditorialCaptionPlan(sceneFile,{hook='',payoff=''}={}
       'You are preparing captions for a short editorial movie/TV explainer.',
       'The independently researched on-screen hook is: '+JSON.stringify(clipText(hook,160))+'.',
       'The verified visual payoff is: '+JSON.stringify(clipText(payoff,220))+'.',
-      'Return ONLY JSON with keys editorial_purpose and beats.',
+      'Return ONLY JSON with keys editorial_purpose, beats, and focus_points.',
       'beats must contain 2 to 6 items. Each item must have start, end, text, kind, emphasis.',
+      'focus_points must contain 1 to 6 items. Each item must have start and subject_x_percent.',
+      'focus_points describe the face/subject the vertical crop should follow. start is seconds from this clip; subject_x_percent is the subject center in the ORIGINAL landscape frame from 0=far left to 100=far right.',
+      'Add a focus point only when the source camera cuts or the important speaker/reaction subject changes. Do not create smooth pans between people or empty set space.',
       'start/end are seconds from the beginning of THIS uploaded scene and must be within the clip.',
       'text should normally be 1 to 5 words so captions change quickly like modern short-form subtitles.',
       'kind must be dialogue or editorial.',
@@ -161,12 +164,11 @@ export async function buildEditorialCaptionPlan(sceneFile,{hook='',payoff=''}={}
       'Do not add engagement bait, algorithm language, fake urgency, or unsupported claims.',
       'The purpose is genuine explanation/accessibility, never copyright-filter or detection evasion.'
     ].join(' ');
-    const response=await ai.models.generateContent({
-      model:PRIMARY_MODEL,
-      contents:createUserContent([createPartFromUri(file.uri,file.mimeType||'video/mp4'),prompt]),
-      config:{responseMimeType:'application/json',temperature:0,maxOutputTokens:1800}
-    });
-    let data=JSON.parse(response.text||'{}');
+    const planned=await generateWithFallback([
+      {text:prompt},
+      {file_data:{file_uri:file.uri,mime_type:file.mimeType||'video/mp4'}}
+    ],{json:true,maxOutputTokens:1800});
+    let data=JSON.parse(planned.text||'{}');
     if(Array.isArray(data))data=data[0]||{};
     const beats=(Array.isArray(data.beats)?data.beats:[]).map(b=>({
       start:Number(b.start),end:Number(b.end),text:clipText(b.text,55),
@@ -180,7 +182,9 @@ export async function buildEditorialCaptionPlan(sceneFile,{hook='',payoff=''}={}
     }
     const editorialPurpose=clipText(data.editorial_purpose,400);
     if(editorialPurpose.length<24)throw new Error('Gemini did not explain the original editorial contribution.');
-    return {caption_profile:'dynamic_editorial_v1',editorial_purpose:editorialPurpose,beats};
+    let focusPoints=(Array.isArray(data.focus_points)?data.focus_points:[]).map(x=>({start:Number(x.start),subject_x_percent:Number(x.subject_x_percent)})).filter(x=>Number.isFinite(x.start)&&x.start>=0&&Number.isFinite(x.subject_x_percent)).map(x=>({start:x.start,subject_x_percent:Math.max(0,Math.min(100,x.subject_x_percent))})).sort((a,b)=>a.start-b.start).slice(0,6);
+    if(focusPoints.length&&focusPoints[0].start>0.08)focusPoints=[{start:0,subject_x_percent:focusPoints[0].subject_x_percent},...focusPoints].slice(0,6);
+    return {caption_profile:'dynamic_editorial_v1',editorial_purpose:editorialPurpose,beats,focus_points:focusPoints};
   }finally{
     if(file?.name)try{await ai.files.delete({name:file.name});}catch{}
   }
