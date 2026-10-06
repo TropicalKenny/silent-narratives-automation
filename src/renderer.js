@@ -159,7 +159,7 @@ export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTim
     const cli=path.join(APP_ROOT,'node_modules','@remotion','cli','remotion-cli.js');
     const entry=path.join(APP_ROOT,'tools','remotion-v5','index.jsx');
     const config=path.join(APP_ROOT,'tools','remotion-v5','remotion.config.mjs');
-    await run(process.execPath,[cli,'render',entry,'EditorialV5',output,'--config='+config,'--codec=h264','--crf=18','--concurrency=2','--props',JSON.stringify(props)],{cwd:APP_ROOT});
+    await run(process.execPath,[cli,'render',entry,'EditorialV5',output,'--config='+config,'--codec=h264','--crf=18','--concurrency=2','--timeout=120000','--props',JSON.stringify(props)],{cwd:APP_ROOT});
   } finally {
     fs.rmSync(publicSource,{force:true});
   }
