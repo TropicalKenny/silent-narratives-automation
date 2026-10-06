@@ -156,10 +156,10 @@ export async function renderShort({jobId,sceneFile,hook,subtitles=[],subtitleTim
   const props={src:`remotion/${publicName}`,duration:d,hook:String(hook),hookEmphasis:String(hookEmphasis||''),headerEnd:Math.min(1.75,Math.max(1.35,d*.25)),beats,cropPlan:resolvedPlan,captionTop:1325,payoffCaptionTop:210,hookTop:76,eyebrow:'SILENT NARRATIVES'};
   fs.copyFileSync(sceneFile,publicSource);
   try{
-    const bin=path.join(APP_ROOT,'node_modules','.bin','remotion');
+    const cli=path.join(APP_ROOT,'node_modules','@remotion','cli','remotion-cli.js');
     const entry=path.join(APP_ROOT,'tools','remotion-v5','index.jsx');
     const config=path.join(APP_ROOT,'tools','remotion-v5','remotion.config.mjs');
-    await run(bin,['render',entry,'EditorialV5',output,'--config='+config,'--codec=h264','--crf=18','--concurrency=2','--props',JSON.stringify(props)],{cwd:APP_ROOT});
+    await run(process.execPath,[cli,'render',entry,'EditorialV5',output,'--config='+config,'--codec=h264','--crf=18','--concurrency=2','--props',JSON.stringify(props)],{cwd:APP_ROOT});
   } finally {
     fs.rmSync(publicSource,{force:true});
   }
