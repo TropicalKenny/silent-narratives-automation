@@ -189,3 +189,32 @@ export async function buildEditorialCaptionPlan(sceneFile,{hook='',payoff=''}={}
     if(file?.name)try{await ai.files.delete({name:file.name});}catch{}
   }
 }
+
+export async function reviewRenderFrames(frameFiles=[]){
+  const files=(Array.isArray(frameFiles)?frameFiles:[]).filter(file=>file&&fs.existsSync(file)).slice(0,7);
+  if(files.length<3)throw new Error('Visual QA needs at least three render frames.');
+  const labels=['opening','early dialogue','middle','payoff','final','extra 1','extra 2'];
+  const parts=[{text:[
+    'You are the final visual QA gate for a vertical YouTube Short.',
+    'The attached JPEG frames are chronological samples from the finished render.',
+    'Judge only what is visibly shown.',
+    'Reject severe framing that replaces the speaking subject with empty set space or cuts off the important face.',
+    'Reject unreadable or duplicated captions, gameplay backgrounds, promo or end-card contamination, severe blur, awkward empty frames, or a lingering payoff card that ruins the final shot.',
+    'The hook may appear briefly at the top, but must not dominate the frame.',
+    'The payoff/reaction must be visually clear and the final frame must look intentional.',
+    'Return only JSON with keys pass, score_10, problems, keep, verdict.',
+    'pass may be true only when score_10 is at least 8 and there is no severe framing, caption, promo, blur, or final-frame defect.'
+  ].join(' ')}];
+  for(let i=0;i<files.length;i++){
+    parts.push({text:labels[i]||('frame '+(i+1))});
+    parts.push({inline_data:{mime_type:'image/jpeg',data:fs.readFileSync(files[i]).toString('base64')}});
+  }
+  const result=await generateWithFallback(parts,{json:true,maxOutputTokens:1400});
+  let data=JSON.parse(result.text||'{}');
+  if(Array.isArray(data))data=data[0]||{};
+  const score=Number(data.score_10);
+  const problems=Array.isArray(data.problems)?data.problems.map(x=>String(x)).slice(0,12):[];
+  const keep=Array.isArray(data.keep)?data.keep.map(x=>String(x)).slice(0,12):[];
+  const pass=data.pass===true&&Number.isFinite(score)&&score>=8&&problems.every(x=>!/^severe\b/i.test(x));
+  return {pass,score_10:Number.isFinite(score)?score:null,problems,keep,verdict:String(data.verdict||''),model:result.model};
+}
