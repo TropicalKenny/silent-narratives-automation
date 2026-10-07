@@ -1,3 +1,15 @@
+# Current production checkpoint — 2026-10-07
+
+This checkpoint takes precedence over older production and maintenance-only instructions below. The owner explicitly authorized one new video and scheduling for 10pm today. Job 8 is now scheduled on Silent Narratives (UCPVj2rGuo-spOTpzUtCayPw): “This Spider-Man Catch Took Tobey Maguire 156 Takes #shorts”, https://youtu.be/t9keGSYlLm8, at 2026-10-07T21:00:00Z = 22:00 WAT. YouTube independently confirmed private visibility and processed upload status. The single-video manual batch paused automatically; do not start another day's batch without owner instruction.
+
+The actual Spider-Man (2002) cafeteria food catch is used. The six-word hook and two explanatory captions distinguish the adhesive-held tray from Maguire's practical food catch, with take 156 attributed to DVD-commentary reporting. The final “Great reflexes.” caption is timed to the original scene audio. Candidate 63 is the correct scene reference; candidate 46 is the unrelated hallway lead, returned to new status. Existing Job 5 and other projects remain untouched.
+
+Master: 8.469s, 1080x1920, 30fps, scene_first_v5, original scene audio. Local QA reviewed 51 frames at 6fps, fully decoded the final file, and found source-audio correlation 0.99841 and peak -2.0dB. Automatic approval rejected the optional finished-video Gemini upload because that external transfer was not specifically authorized; final QA stayed local. Do not retry that external transfer by another route. Job 8's sharp-area metric accounts for its preframed source instead of counting blurred fill as sharp footage.
+
+The live renderer now uses concurrency 1 and a 64MiB off-thread video cache to fit the existing systemd service memory budget. Eight workflow/editorial tests, syntax and config checks passed, and the real render completed successfully after the fix. Cloudflare and password settings were left as-is.
+
+Job 8 media was deleted only after YouTube verification. Private non-media QA and scheduling evidence are in .runtime-tools/video8-qa-20261007.json and video8-publishing-20261007.json. Performance checkpoints are queued for 1h, 6h, 24h, 48h and 7d after release. See docs/VIDEO-2026-10-07.md for the completed report. Views and copyright clearance are not guaranteed by a successful API upload.
+
 # Scene-first v3 correction — 2026-10-05
 
 The first v2 phone preview exposed a false scene-area metric: a 1250px stage contained only 760px of sharp footage, with the remainder rendered as a conspicuous blur band. `scene_first_v3` fixes this by using a 246px (~13%) compact header and a 1320px scene stage. Portrait/4:5 sources such as the Superman gag reel render almost the entire stage as actual sharp footage (~68% of the 1920px frame). Dialogue/editorial captions are shifted left to x=335 and reduced in size for the YouTube Shorts right-side UI safe zone. The template no longer applies the v2 blur-strip composition to portraitish sources.
